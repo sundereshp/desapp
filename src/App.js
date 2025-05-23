@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { TaskProvider } from './contexts/TaskContext';
+import Navbar from './components/Navbar';
+import SettingsPage from './components/SettingsPage';
+import { CSSTransition } from 'react-transition-group';
 import './App.css';
+import './styles/animations.css';
 
 // Key code mappings for display
 const KEY_CODES = {
@@ -109,11 +115,11 @@ function App() {
     clearInterval(timerRef.current);
     setTimerRunning(false);
     setShowTracker(false);  // This will take us back to the selection page
-  
+
     // Reset timer and stats
     setElapsedTime(0);
     setEvents([]);  // This will clear all events and reset the stats
-  
+
     // Stop tracking if it's active
     if (isTracking) {
       try {
@@ -388,212 +394,240 @@ function App() {
     }
   };
 
-  return (
+  const [showSettings, setShowSettings] = useState(false);
 
-    <div className="App">
-      {!showTracker ? (
-        <div className="selection-container">
-          <h2>Task Selection</h2>
-          <div className="dropdown-group">
+  const handleSettingsClick = () => {
+    setShowSettings(prev => !prev);
+  };
+
+  const handleBackFromSettings = () => {
+    setShowSettings(false);
+  };
+
+  const handleQuitClick = () => {
+    if (window.electron) {
+      window.electron.quitApp();
+    } else {
+      console.log('Quit clicked');
+    }
+  };
+
+  const renderSelectionUI = () => {
+    return (
+      <div className="selection-container">
+        <h2>Task Selection</h2>
+        <div className="dropdown-group">
+          <select
+            value={selections.project}
+            onChange={(e) => handleSelectionChange('project', e.target.value)}
+            className="dropdown"
+          >
+            <option value="">Select Project</option>
+            {getOptions('project').map(project => (
+              <option key={project} value={project}>{project}</option>
+            ))}
+          </select>
+
+          {selections.project && (
             <select
-              value={selections.project}
-              onChange={(e) => handleSelectionChange('project', e.target.value)}
+              value={selections.task}
+              onChange={(e) => handleSelectionChange('task', e.target.value)}
               className="dropdown"
             >
-              <option value="">Select Project</option>
-              {getOptions('project').map(project => (
-                <option key={project} value={project}>{project}</option>
+              <option value="">Select Task</option>
+              {getOptions('task').map(task => (
+                <option key={task} value={task}>{task}</option>
               ))}
             </select>
-
-            {selections.project && (
-              <select
-                value={selections.task}
-                onChange={(e) => handleSelectionChange('task', e.target.value)}
-                className="dropdown"
-              >
-                <option value="">Select Task</option>
-                {getOptions('task').map(task => (
-                  <option key={task} value={task}>{task}</option>
-                ))}
-              </select>
-            )}
-
-            {selections.task && (
-              <select
-                value={selections.subtask}
-                onChange={(e) => handleSelectionChange('subtask', e.target.value)}
-                className="dropdown"
-              >
-                <option value="">Select Subtask</option>
-                {getOptions('subtask').map(subtask => (
-                  <option key={subtask} value={subtask}>{subtask}</option>
-                ))}
-              </select>
-            )}
-
-            {selections.subtask && (
-              <select
-                value={selections.action}
-                onChange={(e) => handleSelectionChange('action', e.target.value)}
-                className="dropdown"
-              >
-                <option value="">Select Action</option>
-                {getOptions('action').map(action => (
-                  <option key={action} value={action}>{action}</option>
-                ))}
-              </select>
-            )}
-
-            {selections.action && (
-              <select
-                value={selections.subaction}
-                onChange={(e) => handleSelectionChange('subaction', e.target.value)}
-                className="dropdown"
-              >
-                <option value="">Select Subaction</option>
-                {getOptions('subaction').map(subaction => (
-                  <option key={subaction} value={subaction}>{subaction}</option>
-                ))}
-              </select>
-            )}
-
-            <button
-              onClick={startTimer}
-              disabled={!selections.project || !selections.task}
-              className="start-timer-btn"
-            >
-              Start Timer
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="tracker-container">
-          <button
-            onClick={resetTimerAndBackToSelection}
-            className="back-button"
-            style={{
-              position: 'absolute',
-              top: '15px',
-              left: '15px',
-              background: 'none',
-              border: 'none',
-              fontSize: '24px',
-              cursor: 'pointer',
-              zIndex: 10
-            }}
-            title="Go back to selection"
-          >
-            ↩️
-          </button>
-          <div className="timer-display">
-            <h2>Time Tracking</h2>
-            <div className="time">{formatTime(elapsedTime)}</div>
-            <div className="selection-info">
-              <p><strong>Project:</strong> {selections.project}</p>
-              <p><strong>Task:</strong> {selections.task}</p>
-              {selections.subtask && <p><strong>Subtask:</strong> {selections.subtask}</p>}
-              {selections.action && <p><strong>Action:</strong> {selections.action}</p>}
-              {selections.subaction && <p><strong>Subaction:</strong> {selections.subaction}</p>}
-            </div>
-          </div>
-
-
-          <div className="controls">
-            {timerRunning || isTracking ? (
-              <button
-                onClick={stopTimer}
-                className="stop-btn"
-                disabled={!!error && error.includes('Electron API not available')}
-              >
-                ⏹️ Stop Tracking
-              </button>
-            ) : (
-              <button
-                onClick={startTimer}
-                className="start-btn"
-                disabled={!!error && error.includes('Electron API not available')}
-              >
-                ▶️ Start Tracking
-              </button>
-            )}
-
-            <button
-              onClick={resetTimer}
-              className="reset-all-btn"
-              disabled={!timerRunning && !isTracking && events.length === 0}
-            >
-              🔄 Reset All
-            </button>
-
-            <div className="status">
-              Status: <span className={isTracking ? 'tracking' : 'stopped'}>
-                {isTracking ? '🟢 Tracking Active' : '🔴 Tracking Stopped'}
-              </span>
-            </div>
-          </div>
-
-          {error && (
-            <div className="error">
-              <strong>⚠️ Error:</strong> {error}
-            </div>
           )}
 
-          <div className="stats">
-            <div className="stat-item">
-              <strong>🖱️ Mouse Clicks</strong>
-              <span>{stats.mouseClicks}</span>
-            </div>
-            <div className="stat-item">
-              <strong>⌨️ Key Presses</strong>
-              <span>{stats.keyPresses}</span>
-            </div>
-            <div className="stat-item">
-              <strong>🔄 Mouse Moves</strong>
-              <span>{stats.mouseMoves}</span>
-            </div>
-          </div>
+          {selections.task && (
+            <select
+              value={selections.subtask}
+              onChange={(e) => handleSelectionChange('subtask', e.target.value)}
+              className="dropdown"
+            >
+              <option value="">Select Subtask</option>
+              {getOptions('subtask').map(subtask => (
+                <option key={subtask} value={subtask}>{subtask}</option>
+              ))}
+            </select>
+          )}
 
-          {/* Last Screenshot Section */}
-          <div className="screenshot-section">
+          {selections.subtask && (
+            <select
+              value={selections.action}
+              onChange={(e) => handleSelectionChange('action', e.target.value)}
+              className="dropdown"
+            >
+              <option value="">Select Action</option>
+              {getOptions('action').map(action => (
+                <option key={action} value={action}>{action}</option>
+              ))}
+            </select>
+          )}
+
+          {selections.action && (
+            <select
+              value={selections.subaction}
+              onChange={(e) => handleSelectionChange('subaction', e.target.value)}
+              className="dropdown"
+            >
+              <option value="">Select Subaction</option>
+              {getOptions('subaction').map(subaction => (
+                <option key={subaction} value={subaction}>{subaction}</option>
+              ))}
+            </select>
+          )}
+
+          <button
+            onClick={startTimer}
+            disabled={!selections.project || !selections.task}
+            className="start-timer-btn"
+          >
+            Start Timer
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTimerUI = () => {
+    return (
+      <div className="tracker-container">
+        <button
+          onClick={resetTimerAndBackToSelection}
+          className="back-button"
+          title="Go back to selection"
+        >
+          Back
+        </button>
+        <div className="timer-display">
+          <h2>Time Tracking</h2>
+          <div className="time">{formatTime(elapsedTime)}</div>
+          <div className="selection-info">
+            <p>
+              {[
+                selections.project,
+                selections.task,
+                selections.subtask,
+                selections.action,
+                selections.subaction
+              ]
+                .filter(Boolean) // Remove any falsy values
+                .map((item, index, array) => (
+                  <span key={index}>
+                    <strong>{item}</strong>
+                    {index < array.length - 1 && ' → '}
+                  </span>
+                ))}
+            </p>
+          </div>
+        </div>
+
+        <div className="controls">
+          {timerRunning || isTracking ? (
+            <button
+              onClick={stopTimer}
+              className="stop-btn"
+              disabled={!!error && error.includes('Electron API not available')}
+            >
+              ⏹️ Stop Tracking
+            </button>
+          ) : (
+            <button
+              onClick={startTimer}
+              className="start-btn"
+              disabled={!!error && error.includes('Electron API not available')}
+            >
+              ▶️ Start Tracking
+            </button>
+          )}
+
+          <button
+            onClick={resetTimer}
+            className="reset-all-btn"
+            disabled={!timerRunning && !isTracking && events.length === 0}
+          >
+            🔄 Reset All
+          </button>
+
+          <div className="status">
+            Status: <span className={isTracking ? 'tracking' : 'stopped'}>
+              {isTracking ? '🟢 Tracking Active' : '🔴 Tracking Stopped'}
+            </span>
+          </div>
+        </div>
+
+        {error && (
+          <div className="error">
+            <strong>⚠️ Error:</strong> {error}
+          </div>
+        )}
+
+        {/* Last Screenshot Section */}
+        <div className="screenshot-section">
+          <div className="screenshot-card">
             <h3>📸 Last Screenshot</h3>
             <div className="screenshot-container">
               {lastScreenshot ? (
-                <img 
-                  src={`file://${lastScreenshot.path}`} 
-                  alt="Last screenshot" 
-                  style={{ maxWidth: '100%', maxHeight: '300px', border: '1px solid #ddd', borderRadius: '4px' }}
+                <img
+                  src={`file://${lastScreenshot.path}`}
+                  alt="Last screenshot"
+                  className="screenshot-image"
                 />
               ) : (
-                <p>No screenshot available</p>
+                <p className="no-screenshot">No screenshot available</p>
               )}
-            </div>
-          </div>
-
-          <div className="events-container">
-            <h3>📋 Recent Events (Last {maxEvents})</h3>
-            <div className="events-list" style={{ overflowY: 'auto', maxHeight: '400px' }}>
-              {events.length === 0 ? (
-                <p className="no-events">
-                  {isTracking
-                    ? '✨ Ready to capture events! Use your mouse and keyboard to see them appear here.'
-                    : '👆 Click "Start Tracking" to begin monitoring global input events.'}
-                </p>
-              ) : (
-                events.slice(-50).map((event, index) => (
-                  <div key={event.id || index} className={`event-item ${event.type || 'unknown'}`}>
-                    {formatEvent(event)}
-                  </div>
-                ))
-              )}
-              <div ref={eventsEndRef} style={{ float: 'left', clear: 'both' }} />
             </div>
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    );
+  };
+
+  return (
+    <ThemeProvider>
+      <TaskProvider>
+        <div className="app">
+          <Navbar
+            title={showSettings ? 'Settings' : (timerRunning || isTracking ? 'Timer Page' : 'Selection Page')}
+            onSettingsClick={handleSettingsClick}
+            onQuitClick={handleQuitClick}
+          />
+
+          <CSSTransition
+            in={!showSettings}
+            timeout={300}
+            classNames="slide"
+            unmountOnExit
+          >
+            <div className="main-content">
+              {!timerRunning && !isTracking ? (
+                renderSelectionUI()
+              ) : (
+                renderTimerUI()
+              )}
+            </div>
+          </CSSTransition>
+
+          <CSSTransition
+            in={showSettings}
+            timeout={300}
+            classNames="slide"
+            unmountOnExit
+          >
+            <div className="settings-container">
+              <SettingsPage
+                onBackClick={handleBackFromSettings}
+                onQuitClick={handleQuitClick}
+              />
+            </div>
+          </CSSTransition>
+        </div>
+      </TaskProvider>
+    </ThemeProvider>
   );
 }
-
 
 export default App;

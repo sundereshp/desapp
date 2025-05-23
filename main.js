@@ -65,7 +65,6 @@ function sendGlobalEvent(event) {
 function startTracking() {
   if (isTracking) return;
   isTracking = true;
-
   // Start listening to all events
   uIOhook.start();
 
@@ -161,13 +160,14 @@ ipcMain.handle('get-tracking-status', async () => {
 ipcMain.handle('take-screenshot', takeScreenshot);
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 600,
+    height: 900,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
-    }
+    },
+    
   });
 
   // Load the app
