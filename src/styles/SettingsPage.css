@@ -22,27 +22,40 @@
 }
 
 .back-button {
-  display: flex;
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--primary-text);
+  cursor: pointer;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  transition: all 0.2s ease;
+  text-decoration: none;
+  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  background: none;
-  border: none;
-  color: var(--primary-text);
-  font-size: 1rem;
-  cursor: pointer;
-  margin-bottom: 1.5rem;
-  padding: 0.5rem 0;
-  position: relative; /* Remove any absolute positioning */
-  z-index: 1;
 }
 
 .back-button:hover {
-  opacity: 0.8;
+  background: var(--hover-bg);
+  border-color: var(--border-color);
+}
+
+.back-button:active {
+  transform: scale(0.98);
+  background: var(--hover-bg);
 }
 
 .back-button .icon {
   width: 1.25rem;
   height: 1.25rem;
+  flex-shrink: 0;
 }
 
 .settings-section {
@@ -51,6 +64,7 @@
   padding: 1.5rem;
   margin-bottom: 1.5rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--border-color); 
 }
 
 .settings-section h2 {

@@ -36,10 +36,7 @@
 /* Settings Page Container */
 .settings-container {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  
   background: var(--primary-bg);
   z-index: 1000;
   overflow-y: auto;/* Account for navbar height */

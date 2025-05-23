@@ -6,6 +6,7 @@ import SettingsPage from './components/SettingsPage';
 import { CSSTransition } from 'react-transition-group';
 import './App.css';
 import './styles/animations.css';
+import { Keyboard, MousePointerClick } from 'lucide-react';
 
 // Key code mappings for display
 const KEY_CODES = {
@@ -34,7 +35,7 @@ function App() {
   const [timerRunning, setTimerRunning] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerRef = useRef(null);
-
+  
   // Sample data structure - replace with your actual data
   const projects = {
     'Project 1': {
@@ -82,34 +83,31 @@ function App() {
   const stopTimer = async () => {
     clearInterval(timerRef.current);
     setTimerRunning(false);
-
-    // Stop tracking
+  
+    // Pause tracking but stay on timer page
     if (isTracking) {
       try {
-        await handleStopTracking();
+        await handlePauseTracking();
       } catch (err) {
-        setError(`Failed to stop tracking: ${err.message}`);
+        setError(`Failed to pause tracking: ${err.message}`);
       }
     }
   };
-
-  const resetTimer = async () => {
-    // Stop the timer and tracking
+  
+  const pauseTimer = async () => {
     clearInterval(timerRef.current);
     setTimerRunning(false);
-
-    // Reset timer and stats
-    setElapsedTime(0);
-    setEvents([]);  // This will clear all events and reset the stats
-    // Stop tracking if it's active
+    
+    // Pause tracking but stay on timer page
     if (isTracking) {
       try {
-        await handleStopTracking();
+        await handlePauseTracking();
       } catch (err) {
-        setError(`Failed to stop tracking: ${err.message}`);
+        setError(`Failed to pause tracking: ${err.message}`);
       }
     }
   };
+
   const resetTimerAndBackToSelection = async () => {
     // Stop the timer and tracking
     clearInterval(timerRef.current);
@@ -118,7 +116,7 @@ function App() {
 
     // Reset timer and stats
     setElapsedTime(0);
-    setEvents([]);  // This will clear all events and reset the stats
+    setEvents([]);
 
     // Stop tracking if it's active
     if (isTracking) {
@@ -357,6 +355,19 @@ function App() {
     }
   };
 
+  const handlePauseTracking = async () => {
+    try {
+      const result = await window.electronAPI.stopTracking();
+      if (result.success) {
+        setError(null);
+        
+        // Don't set isTracking to false, just keep it true but paused
+      }
+    } catch (err) {
+      setError(`Failed to pause tracking: ${err.message}`);
+    }
+  };
+
   const handleStopTracking = async () => {
     try {
       const result = await window.electronAPI.stopTracking();
@@ -493,6 +504,8 @@ function App() {
   };
 
   const renderTimerUI = () => {
+    const isDarkMode = document.body.classList.contains('dark-theme');
+    
     return (
       <div className="tracker-container">
         <button
@@ -503,8 +516,41 @@ function App() {
           Back
         </button>
         <div className="timer-display">
-          <h2>Time Tracking</h2>
-          <div className="time">{formatTime(elapsedTime)}</div>
+          <h2>Time Tracking {!timerRunning && isTracking ? '(Paused)' : ''}</h2>
+          <div className={`time ${!timerRunning && isTracking ? 'paused' : ''}`}>
+            {formatTime(elapsedTime)}
+          </div>
+          
+          {/* Updated Activity Metrics */}
+          <div className="activity-metrics">
+            <h3 className="metrics-title">Activity Metrics</h3>
+            <div className="metrics-grid">
+              <div className={`metric-card ${isDarkMode ? 'keyboard-dark' : 'keyboard-light'}`}>
+                <div className={`metric-icon ${isDarkMode ? 'keyboard-icon-dark' : 'keyboard-icon-light'}`}>
+                  <Keyboard className="metric-svg" />
+                </div>
+                <div className="metric-details">
+                  <p className="metric-label">Keystrokes</p>
+                  <p className={`metric-value ${isDarkMode ? 'keyboard-text-dark' : 'keyboard-text-light'}`}>
+                    {stats.keyPresses || 0}
+                  </p>
+                </div>
+              </div>
+              
+              <div className={`metric-card ${isDarkMode ? 'mouse-dark' : 'mouse-light'}`}>
+                <div className={`metric-icon ${isDarkMode ? 'mouse-icon-dark' : 'mouse-icon-light'}`}>
+                  <MousePointerClick className="metric-svg" />
+                </div>
+                <div className="metric-details">
+                  <p className="metric-label">Mouse Clicks</p>
+                  <p className={`metric-value ${isDarkMode ? 'mouse-text-dark' : 'mouse-text-light'}`}>
+                    {stats.mouseClicks || 0}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="selection-info">
             <p>
               {[
@@ -526,13 +572,13 @@ function App() {
         </div>
 
         <div className="controls">
-          {timerRunning || isTracking ? (
+          {timerRunning ? (
             <button
-              onClick={stopTimer}
+              onClick={pauseTimer}
               className="stop-btn"
               disabled={!!error && error.includes('Electron API not available')}
             >
-              ⏹️ Stop Tracking
+              Pause
             </button>
           ) : (
             <button
@@ -540,31 +586,26 @@ function App() {
               className="start-btn"
               disabled={!!error && error.includes('Electron API not available')}
             >
-              ▶️ Start Tracking
+              Resume
             </button>
           )}
 
           <button
-            onClick={resetTimer}
+            onClick={resetTimerAndBackToSelection}
             className="reset-all-btn"
-            disabled={!timerRunning && !isTracking && events.length === 0}
+            disabled={!isTracking && events.length === 0}
           >
-            🔄 Reset All
+            Punch Out
           </button>
 
-          <div className="status">
-            Status: <span className={isTracking ? 'tracking' : 'stopped'}>
-              {isTracking ? '🟢 Tracking Active' : '🔴 Tracking Stopped'}
-            </span>
-          </div>
+          
         </div>
-
+        {/* Rest of the timer UI remains the same */}
         {error && (
           <div className="error">
             <strong>⚠️ Error:</strong> {error}
           </div>
         )}
-
         {/* Last Screenshot Section */}
         <div className="screenshot-section">
           <div className="screenshot-card">
@@ -591,7 +632,7 @@ function App() {
       <TaskProvider>
         <div className="app">
           <Navbar
-            title={showSettings ? 'Settings' : (timerRunning || isTracking ? 'Timer Page' : 'Selection Page')}
+            title={showSettings ? 'Settings' : (showTracker ? 'Timer' : 'Selection')}
             onSettingsClick={handleSettingsClick}
             onQuitClick={handleQuitClick}
           />
@@ -603,11 +644,7 @@ function App() {
             unmountOnExit
           >
             <div className="main-content">
-              {!timerRunning && !isTracking ? (
-                renderSelectionUI()
-              ) : (
-                renderTimerUI()
-              )}
+              {!showTracker ? renderSelectionUI() : renderTimerUI()}
             </div>
           </CSSTransition>
 
