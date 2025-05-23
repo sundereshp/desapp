@@ -1,0 +1,79 @@
+{
+  "name": "global-tracker-app",
+  "version": "1.0.0",
+  "author": "sunderesh <sunderesh@gmail.com>",
+  "description": "Global mouse and keyboard event tracker for Windows",
+  "main": "main.js",
+  "homepage": "./",
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "electron": "electron .",
+    "dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "dist": "npm run build && electron-builder --windows",
+    "postinstall": "electron-rebuild -f -w iohook"
+  },
+  "dependencies": {
+    "electron-screenshot": "^1.0.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "robotjs": "^0.6.0",
+    "uiohook-napi": "^1.5.4"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.2",
+    "@types/babel__core": "^7.20.5",
+    "@types/node": "^22.15.21",
+    "concurrently": "^8.2.0",
+    "electron": "^27.3.11",
+    "electron-builder": "^24.6.4",
+    "wait-on": "^7.0.1"
+  },
+  "build": {
+    "appId": "com.sunderesh.globaltracker",
+    "productName": "Global Tracker",
+    "extends": null,
+    "extraResources": [
+      "./node_modules/electron-screenshot/**/*"
+    ],
+    "files": [
+      "build/**/*",
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "assets",
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    }
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "iohook": {
+    "targets": [
+      "electron-118"
+    ],
+    "platforms": [
+      "win32"
+    ],
+    "arches": [
+      "x64"
+    ]
+  }
+}
