@@ -11,31 +11,41 @@ let lastMousePosition = { x: 0, y: 0 };
 const MOUSE_MOVE_THROTTLE_MS = 100; // Adjust this value (100ms default)
 let lastMouseEventSent = 0;
 
+// Update the tracking interval to 5 minutes (300,000 ms)
+const SCREENSHOT_INTERVAL = 5 * 60 * 1000;
+
 async function takeScreenshot() {
   try {
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
-      thumbnailSize: { width: 1920, height: 1080 } // Adjust size as needed
+      thumbnailSize: screen.getPrimaryDisplay().workAreaSize
     });
 
     const now = new Date();
-    // Create a timestamp rounded down to the nearest minute
-    const minuteTimestamp = new Date(now);
-    minuteTimestamp.setSeconds(0, 0);
-    const minuteFolder = minuteTimestamp.toISOString().replace(/[:.]/g, '-').replace('T', '_').substring(0, 16);
+    
+    // Format: YYYY-MM-DD
+    const dateFolder = now.toISOString().split('T')[0];
+    
+    // Create hour interval string (e.g., "14-15")
+    const currentHour = now.getHours();
+    const nextHour = (currentHour + 1) % 24;
+    const hourInterval = `${currentHour.toString().padStart(2, '0')}-${nextHour.toString().padStart(2, '0')}`;
     
     const screenshotDir = path.join(
       'C:/Users/Sunderesh/OneDrive/Pictures/usertracking',
       'screenshots',
-      minuteFolder
+      dateFolder,
+      hourInterval
     );
 
     // Ensure directory exists
     fs.mkdirSync(screenshotDir, { recursive: true });
 
+    // Format: screenshot-YYYY-MM-DD-HH-MM-SS.png
+    const timestamp = now.toISOString().replace(/[:.]/g, '-').replace('T', '_');
     const screenshotPath = path.join(
       screenshotDir,
-      `screenshot-${now.getTime()}.png`
+      `screenshot-${timestamp}.png`
     );
 
     // Save the screenshot
@@ -65,8 +75,15 @@ function sendGlobalEvent(event) {
 function startTracking() {
   if (isTracking) return;
   isTracking = true;
+  
   // Start listening to all events
   uIOhook.start();
+
+  // Take initial screenshot immediately
+  takeScreenshot();
+  
+  // Set up interval for screenshots (every 5 minutes)
+  trackingInterval = setInterval(takeScreenshot, SCREENSHOT_INTERVAL);
 
   // Mouse move event
   uIOhook.on('mousemove', (event) => {
@@ -121,6 +138,13 @@ function startTracking() {
 function stopTracking() {
   if (!isTracking) return;
   isTracking = false;
+  
+  // Clear the screenshot interval
+  if (trackingInterval) {
+    clearInterval(trackingInterval);
+    trackingInterval = null;
+  }
+  
   uIOhook.removeAllListeners();
   console.log('Stopped tracking global input events');
   if (mainWindow) {

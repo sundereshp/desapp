@@ -3,10 +3,10 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { TaskProvider } from './contexts/TaskContext';
 import Navbar from './components/Navbar';
 import SettingsPage from './components/SettingsPage';
+import { Keyboard, MousePointerClick } from 'lucide-react';
 import { CSSTransition } from 'react-transition-group';
 import './App.css';
 import './styles/animations.css';
-import { Keyboard, MousePointerClick } from 'lucide-react';
 
 // Key code mappings for display
 const KEY_CODES = {
@@ -23,6 +23,7 @@ const KEY_CODES = {
 };
 
 function App() {
+  // Form Selections State
   const [selections, setSelections] = useState({
     project: '',
     task: '',
@@ -31,143 +32,82 @@ function App() {
     subaction: ''
   });
 
+  // UI State
   const [showTracker, setShowTracker] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Timer State
   const [timerRunning, setTimerRunning] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerRef = useRef(null);
-  
+
+  // Tracking State
+  const [isTracking, setIsTracking] = useState(false);
+  const [events, setEvents] = useState([]);
+  const eventsEndRef = useRef(null);
+
+  // Project Data State
   const [projects, setProjects] = useState({});
-  const [projectsList, setProjectsList] = useState([]); // Store projects as an array of objects with id and name
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const [tasks, setTasks] = useState([]);
-  const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [tasksLoading, setTasksLoading] = useState(false);
-  const [allTasks, setAllTasks] = useState([]); // Store all tasks
+  // Electron/API State
+  const [isElectron, setIsElectron] = useState(false);
+  const [apiReady, setApiReady] = useState(false);
+  const [screenshotInterval, setScreenshotInterval] = useState(null);
+  const [lastScreenshot, setLastScreenshot] = useState(null);
+  const maxEvents = 1000;
 
-  useEffect(() => {
-    const fetchAllTasks = async () => {
-      try {
-        setTasksLoading(true);
-        const tasksResponse = await fetch('http://localhost:5000/sunderesh/backend/tasks');
-        
-        if (!tasksResponse.ok) {
-          throw new Error('Failed to fetch tasks');
-        }
-        
-        const tasksData = await tasksResponse.json();
-        console.log('All tasks data:', tasksData);
-        
-        // Process tasks data - adjust this based on the actual API response structure
-        if (Array.isArray(tasksData)) {
-          setAllTasks(tasksData);
-        } else if (tasksData.tasks && Array.isArray(tasksData.tasks)) {
-          setAllTasks(tasksData.tasks);
-        }
-      } catch (err) {
-        console.error('Error fetching tasks:', err);
-      } finally {
-        setTasksLoading(false);
-      }
-    };
-
-    fetchAllTasks();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedProjectId) {
-      setTasks([]);
-      return;
-    }
-
-    // Find the selected project's ID from projectsList
-    const selectedProject = projectsList.find(p => p.name === selectedProjectId);
-    if (!selectedProject) {
-      setTasks([]);
-      return;
-    }
-
-    // Filter only level 1 tasks for the selected project
-    const filteredTasks = allTasks.filter(task => 
-      task.projectID == selectedProject.id && // Use loose equality for type safety
-      task.taskLevel === 1
-    );
-    
-    console.log('Level 1 tasks for project', selectedProjectId, ':', filteredTasks);
-    setTasks(filteredTasks);
-  }, [selectedProjectId, allTasks, projectsList]);
-
-  useEffect(() => {
-    console.log('Selected Project ID:', selectedProjectId);
-    console.log('All tasks:', allTasks);
-    
-    if (!selectedProjectId) {
-      console.log('No project selected, clearing tasks');
-      setTasks([]);
-      return;
-    }
-
-    // Find the selected project's ID from projectsList
-    const selectedProject = projectsList.find(p => p.name === selectedProjectId);
-    if (!selectedProject) {
-      console.log('Selected project not found in projects list');
-      setTasks([]);
-      return;
-    }
-
-    console.log('Looking for tasks with projectID:', selectedProject.id);
-    
-    // Filter tasks that belong to the selected project
-    const filteredTasks = allTasks.filter(task => {
-      const matches = task.projectID === selectedProject.id || 
-                    task.projectID?.toString() === selectedProject.id.toString() && task.level === 1;
-      console.log(`Task: ${task.name}, ProjectID: ${task.projectID}, Matches: ${matches}`);
-      return matches;
-    });
-    
-    console.log('Filtered tasks for project', selectedProjectId, ':', filteredTasks);
-    setTasks(filteredTasks);
-  }, [selectedProjectId, allTasks, projectsList]);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Fetch projects
-        const projectsResponse = await fetch('http://localhost:5000/sunderesh/backend/projects');
-        if (!projectsResponse.ok) {
-          throw new Error('Failed to fetch projects');
-        }
-        const projectsData = await projectsResponse.json();
-        console.log('Projects data:', projectsData);
-        
-        // Process projects data
-        const projectsMap = {};
-        const projectsArray = [];
-        
-        if (Array.isArray(projectsData)) {
-          projectsData.forEach(project => {
-            if (project && project.id && project.name) {
-              projectsMap[project.name] = {};
-              projectsArray.push({
-                id: project.id,
-                name: project.name
-              });
-            }
+  // Function to fetch projects from database using Electron's IPC
+  const fetchProjects = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      if (window.electronAPI) {
+        const result = await window.electronAPI.getProjects();
+        if (result.success) {
+          const projectsMap = {};
+          result.projects.forEach(project => {
+            projectsMap[project.name] = {};
           });
-        } 
-        
-        console.log('Processed projects:', projectsMap);
-        setProjects(projectsMap);
-        setProjectsList(projectsArray);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error fetching projects:', err);
-        setLoading(false);
+          setProjects(projectsMap);
+          return true;
+        } else {
+          setError(result.error || 'Failed to load projects');
+          return false;
+        }
+      } else {
+        setError('Electron API not available');
+        return false;
       }
-    };
+    } catch (err) {
+      console.error('Error fetching projects:', err);
+      setError('Failed to load projects');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    fetchData();
+  // Fetch projects on component mount
+  useEffect(() => {
+    fetchProjects();
   }, []);
+
+  // Function to manually refresh projects
+  const refreshProjects = async () => {
+    const success = await fetchProjects();
+    if (success) {
+      // Reset selections after refresh
+      setSelections({
+        project: '',
+        task: '',
+        subtask: '',
+        action: '',
+        subaction: ''
+      });
+    }
+  };
 
   const startTimer = async () => {
     if (!timerRunning) {
@@ -193,7 +133,7 @@ function App() {
   const stopTimer = async () => {
     clearInterval(timerRef.current);
     setTimerRunning(false);
-  
+
     // Pause tracking but stay on timer page
     if (isTracking) {
       try {
@@ -203,11 +143,11 @@ function App() {
       }
     }
   };
-  
+
   const pauseTimer = async () => {
     clearInterval(timerRef.current);
     setTimerRunning(false);
-    
+
     // Pause tracking but stay on timer page
     if (isTracking) {
       try {
@@ -237,6 +177,7 @@ function App() {
       }
     }
   };
+
   // Format time for display
   const formatTime = (milliseconds) => {
     const totalSeconds = Math.floor(milliseconds / 1000);
@@ -246,17 +187,8 @@ function App() {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const handleProjectSelect = (projectId) => {
-    setSelectedProjectId(projectId);
-    // Clear previous tasks when selecting a new project
-    setTasks([]);
-  };
-
+  // Handle selection changes
   const handleSelectionChange = (level, value) => {
-    if (level === 'project') {
-      handleProjectSelect(value);
-    }
-    
     setSelections(prev => {
       const newSelections = { ...prev, [level]: value };
       // Clear all dependent selections when a parent changes
@@ -269,215 +201,67 @@ function App() {
     });
   };
 
-  // Get available options based on current selections with proper level filtering
+  // Get available options based on current selections
   const getOptions = (level) => {
-    try {
-      switch (level) {
-        case 'project':
-          return projectsList.map(p => ({
-            name: p.name,
-            id: p.id
-          }));
-
-        case 'task':
-          // Explicitly filter for level 1 tasks as an extra safety measure
-          const level1Tasks = tasks.filter(task => task.taskLevel === 1);
-          console.log('Level 1 tasks for dropdown:', level1Tasks);
-          return level1Tasks.map(task => ({
-            name: task.name,
-            id: task.id
-          }));
-
-        case 'subtask':
-          if (!selections.task) return [];
-          const selectedTask = tasks.find(t => t.name === selections.task);
-          if (!selectedTask) return [];
-          
-          // Only show level 2 tasks that are children of the selected task
-          return allTasks.filter(task => 
-            task.taskLevel === 2 && 
-            task.parentID == selectedTask.id // Loose equality for type safety
-          ).map(task => ({
-            name: task.name,
-            id: task.id
-          }));
-
-        case 'action':
-          if (!selections.subtask) return [];
-          const selectedSubtask = allTasks.find(t => t.name === selections.subtask);
-          if (!selectedSubtask) return [];
-          
-          // Only show level 3 tasks that are children of the selected subtask
-          return allTasks.filter(task => 
-            task.taskLevel === 3 && 
-            task.parentID == selectedSubtask.id
-          ).map(task => ({
-            name: task.name,
-            id: task.id
-          }));
-
-        case 'subaction':
-          if (!selections.action) return [];
-          const selectedAction = allTasks.find(t => t.name === selections.action);
-          if (!selectedAction) return [];
-          
-          // Only show level 4 tasks that are children of the selected action
-          return allTasks.filter(task => 
-            task.taskLevel === 4 && 
-            task.parentID == selectedAction.id
-          ).map(task => ({
-            name: task.name,
-            id: task.id
-          }));
-
-        default:
-          return [];
-      }
-    } catch (error) {
-      console.error('Error in getOptions:', error);
-      return [];
-    }
+    const levels = ['project', 'task', 'subtask', 'action', 'subaction'];
+    const levelIndex = levels.indexOf(level);
+    
+    if (levelIndex === -1) return [];
+    
+    // For now, return some dummy data
+    // In a real app, you would fetch this from your API based on parent selections
+    const options = {
+      task: ['Task 1', 'Task 2', 'Task 3'],
+      subtask: ['Subtask A', 'Subtask B', 'Subtask C'],
+      action: ['Action 1', 'Action 2', 'Action 3'],
+      subaction: ['Subaction X', 'Subaction Y', 'Subaction Z']
+    };
+    
+    return options[level] || [];
   };
-  const [isTracking, setIsTracking] = useState(false);
-  const [events, setEvents] = useState([]);
-  const [error, setError] = useState(null);
-  const eventsEndRef = useRef(null);
-  const [isElectron, setIsElectron] = useState(false);
-  const [apiReady, setApiReady] = useState(false);
-
-  const maxEvents = 1000;
-  const [screenshotInterval, setScreenshotInterval] = useState(null);
-  const [lastScreenshot, setLastScreenshot] = useState(null);
 
   // Calculate stats from events array
   const stats = useMemo(() => {
     const calculatedStats = { mouseClicks: 0, keyPresses: 0, mouseMoves: 0 };
-
     events.forEach(event => {
-      try {
-        if (!event || typeof event !== 'object') {
-          console.warn('Invalid event object:', event);
-          return;
-        }
-
-        if (!event.type) {
-          console.warn('Event missing type property:', event);
-          return;
-        }
-
-        switch (event.type) {
-          case 'mouseclick':
-            calculatedStats.mouseClicks++;
-            break;
-          case 'keydown':
-            calculatedStats.keyPresses++;
-            break;
-          case 'mousemove':
-            calculatedStats.mouseMoves++;
-            break;
-          default:
-            console.log('Unhandled event type:', event.type, 'event:', event);
-        }
-      } catch (error) {
-        console.error('Error processing event:', error, 'Event:', event);
-      }
+      if (event.type === 'mouseclick') calculatedStats.mouseClicks++;
+      else if (event.type === 'keydown') calculatedStats.keyPresses++;
+      else if (event.type === 'mousemove') calculatedStats.mouseMoves++;
     });
-
     return calculatedStats;
   }, [events]);
+
+  // Set up event listeners for Electron IPC
   useEffect(() => {
-    if (isTracking) {
-      // Take initial screenshot immediately
-      if (window.electronAPI?.takeScreenshot) {
-        window.electronAPI.takeScreenshot().then(result => {
-          if (result.success) {
-            console.log('Initial screenshot taken:', result.path);
-            setLastScreenshot(result);
-          } else {
-            console.error('Failed to take initial screenshot:', result.error);
-          }
-        });
-      }
-
-      // Set up interval for subsequent screenshots
-      const interval = setInterval(() => {
-        if (window.electronAPI?.takeScreenshot) {
-          window.electronAPI.takeScreenshot().then(result => {
-            if (result.success) {
-              console.log('Screenshot taken:', result.path);
-              setLastScreenshot(result);
-            } else {
-              console.error('Failed to take screenshot:', result.error);
-            }
-          });
-        }
-      }, 10000); // 10 seconds
-
-      setScreenshotInterval(interval);
-    } else if (screenshotInterval) {
-      // Clear the interval when tracking stops
-      clearInterval(screenshotInterval);
-      setScreenshotInterval(null);
-    }
-
-    // Clean up on unmount
-    return () => {
-      if (screenshotInterval) {
-        clearInterval(screenshotInterval);
-      }
-    };
-  }, [isTracking]);
-  useEffect(() => {
-    if (window.electronAPI) {
-      setIsElectron(true);
+    const isElectron = window.electron !== undefined;
+    setIsElectron(isElectron);
+    
+    if (isElectron && window.electronAPI) {
       setApiReady(true);
-      console.log('Electron API is available');
-    } else {
-      setApiReady(true); // Still render UI
-      console.warn('Electron API is not available');
     }
-  }, []);
 
-  useEffect(() => {
-    if (!apiReady || !isElectron || !window.electronAPI?.onGlobalEvent) return;
-
-    // In App.js, update the handleGlobalEvent function
     const handleGlobalEvent = (data) => {
-      try {
-        console.log('Raw event data received:', JSON.stringify(data, null, 2));
-
-        if (!data || typeof data !== 'object') {
-          console.error('Invalid event data received:', data);
-          return;
+      setEvents(prevEvents => {
+        const newEvents = [...prevEvents, data];
+        if (newEvents.length > maxEvents) {
+          newEvents.shift();
         }
-
-        const newEvent = {
-          ...data,
-          id: Date.now() + Math.random().toString(36).substr(2, 9),
-          timestamp: new Date().toISOString()
-        };
-
-        console.log('Processed new event:', newEvent);
-
-        setEvents(prev => {
-          const updatedEvents = [...prev, newEvent].slice(-maxEvents);
-          console.log('Total events in state:', updatedEvents.length);
-          return updatedEvents;
-        });
-      } catch (error) {
-        console.error('Error in handleGlobalEvent:', error, 'Data:', data);
-      }
+        return newEvents;
+      });
     };
 
-    const cleanup = window.electronAPI.onGlobalEvent(handleGlobalEvent);
-    return () => {
-      if (typeof cleanup === 'function') cleanup();
-      else if (window.electronAPI?.removeGlobalEventListener) {
-        window.electronAPI.removeGlobalEventListener(handleGlobalEvent);
-      }
-    };
-  }, [isElectron, apiReady, maxEvents]);
+    if (window.electronAPI) {
+      const cleanup = window.electronAPI.onGlobalEvent(handleGlobalEvent);
+      return () => {
+        if (typeof cleanup === 'function') cleanup();
+        else if (window.electronAPI?.removeGlobalEventListener) {
+          window.electronAPI.removeGlobalEventListener(handleGlobalEvent);
+        }
+      };
+    }
+  }, [maxEvents]);
 
+  // Set up tracking status listener
   useEffect(() => {
     if (!isElectron || !window.electronAPI) return;
 
@@ -500,6 +284,7 @@ function App() {
     };
   }, [isElectron]);
 
+  // Auto-scroll events list
   useEffect(() => {
     if (eventsEndRef.current) {
       const eventsContainer = eventsEndRef.current.parentElement;
@@ -525,8 +310,6 @@ function App() {
       const result = await window.electronAPI.stopTracking();
       if (result.success) {
         setError(null);
-        
-        // Don't set isTracking to false, just keep it true but paused
       }
     } catch (err) {
       setError(`Failed to pause tracking: ${err.message}`);
@@ -555,7 +338,7 @@ function App() {
       case 'mouseclick':
         const buttonName = event.button === 1 ? 'Left' :
           event.button === 2 ? 'Right' :
-            event.button === 3 ? 'Middle' : 'Unknown';
+          event.button === 3 ? 'Middle' : 'Unknown';
         return `${time} - Mouse ${buttonName} Click at (${event.x}, ${event.y})`;
 
       case 'mousemove':
@@ -569,8 +352,6 @@ function App() {
         return `${time} - ${event.type}: ${JSON.stringify(event)}`;
     }
   };
-
-  const [showSettings, setShowSettings] = useState(false);
 
   const handleSettingsClick = () => {
     setShowSettings(prev => !prev);
@@ -591,17 +372,27 @@ function App() {
   const renderSelectionUI = () => {
     return (
       <div className="selection-container">
-        <h2>Task Selection</h2>
+        <div className="selection-header">
+          <h2>What are you working on?</h2>
+          <button 
+            onClick={refreshProjects} 
+            className="refresh-button"
+            disabled={loading}
+            title="Refresh projects"
+          >
+            {loading ? 'Refreshing...' : '↻'}
+          </button>
+        </div>
         <div className="dropdown-group">
           <select
             value={selections.project}
             onChange={(e) => handleSelectionChange('project', e.target.value)}
-            className="dropdown"
+            disabled={loading}
           >
-            <option value="">Select Project</option>
-            {projectsList.map(project => (
-              <option key={project.id} value={project.name}>
-                {project.name}
+            <option value="">{loading ? 'Loading...' : 'Select a project'}</option>
+            {Object.keys(projects).map(project => (
+              <option key={project} value={project}>
+                {project}
               </option>
             ))}
           </select>
@@ -612,13 +403,9 @@ function App() {
               onChange={(e) => handleSelectionChange('task', e.target.value)}
               className="dropdown"
             >
-              <option value="">
-                {tasksLoading ? 'Loading tasks...' : getOptions('task').length === 0 ? 'No tasks found' : 'Select Task'}
-              </option>
+              <option value="">Select Task</option>
               {getOptions('task').map(task => (
-                <option key={task.id} value={task.name}>
-                  {task.name}
-                </option>
+                <option key={task} value={task}>{task}</option>
               ))}
             </select>
           )}
@@ -629,13 +416,9 @@ function App() {
               onChange={(e) => handleSelectionChange('subtask', e.target.value)}
               className="dropdown"
             >
-              <option value="">
-                {getOptions('subtask').length === 0 ? 'No subtasks available' : 'Select Subtask'}
-              </option>
+              <option value="">Select Subtask</option>
               {getOptions('subtask').map(subtask => (
-                <option key={subtask.id} value={subtask.name}>
-                  {subtask.name}
-                </option>
+                <option key={subtask} value={subtask}>{subtask}</option>
               ))}
             </select>
           )}
@@ -646,13 +429,9 @@ function App() {
               onChange={(e) => handleSelectionChange('action', e.target.value)}
               className="dropdown"
             >
-              <option value="">
-                {getOptions('action').length === 0 ? 'No action items available' : 'Select Action'}
-              </option>
+              <option value="">Select Action</option>
               {getOptions('action').map(action => (
-                <option key={action.id} value={action.name}>
-                  {action.name}
-                </option>
+                <option key={action} value={action}>{action}</option>
               ))}
             </select>
           )}
@@ -663,13 +442,9 @@ function App() {
               onChange={(e) => handleSelectionChange('subaction', e.target.value)}
               className="dropdown"
             >
-              <option value="">
-                {getOptions('subaction').length === 0 ? 'No subaction items available' : 'Select Subaction'}
-              </option>
+              <option value="">Select Subaction</option>
               {getOptions('subaction').map(subaction => (
-                <option key={subaction.id} value={subaction.name}>
-                  {subaction.name}
-                </option>
+                <option key={subaction} value={subaction}>{subaction}</option>
               ))}
             </select>
           )}
@@ -688,7 +463,7 @@ function App() {
 
   const renderTimerUI = () => {
     const isDarkMode = document.body.classList.contains('dark-theme');
-    
+
     return (
       <div className="tracker-container">
         <button
@@ -703,8 +478,8 @@ function App() {
           <div className={`time ${!timerRunning && isTracking ? 'paused' : ''}`}>
             {formatTime(elapsedTime)}
           </div>
-          
-          {/* Updated Activity Metrics */}
+
+          {/* Activity Metrics */}
           <div className="activity-metrics">
             <h3 className="metrics-title">Activity Metrics</h3>
             <div className="metrics-grid">
@@ -719,7 +494,7 @@ function App() {
                   </p>
                 </div>
               </div>
-              
+
               <div className={`metric-card ${isDarkMode ? 'mouse-dark' : 'mouse-light'}`}>
                 <div className={`metric-icon ${isDarkMode ? 'mouse-icon-dark' : 'mouse-icon-light'}`}>
                   <MousePointerClick className="metric-svg" />
@@ -743,7 +518,7 @@ function App() {
                 selections.action,
                 selections.subaction
               ]
-                .filter(Boolean) // Remove any falsy values
+                .filter(Boolean)
                 .map((item, index, array) => (
                   <span key={index}>
                     <strong>{item}</strong>
@@ -780,15 +555,14 @@ function App() {
           >
             Punch Out
           </button>
-
-          
         </div>
-        {/* Rest of the timer UI remains the same */}
+
         {error && (
           <div className="error">
             <strong>⚠️ Error:</strong> {error}
           </div>
         )}
+
         {/* Last Screenshot Section */}
         <div className="screenshot-section">
           <div className="screenshot-card">
