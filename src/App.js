@@ -177,7 +177,22 @@ function App() {
       timerRef.current = setInterval(() => {
         setElapsedTime(Date.now() - startTime);
       }, 1000);
-
+  
+      // Set tracking context before starting
+      const selectedProject = projectsList.find(p => p.name === selections.project);
+      const selectedTask = tasks.find(t => t.name === selections.task);
+      
+      if (selectedProject && selectedTask) {
+        await window.electronAPI.setTrackingContext({
+          projectID: selectedProject.id,
+          userID: 1, // Set appropriate user ID
+          taskID: selectedTask.id,
+          subtaskID: selections.subtask ? tasks.find(t => t.name === selections.subtask).id : null,
+          actionItemID: selections.action ? tasks.find(t => t.name === selections.action).id : null,
+          subactionItemID: selections.subaction ? tasks.find(t => t.name === selections.subaction).id : null
+        });
+      }
+  
       // Start tracking
       if (!isTracking) {
         try {

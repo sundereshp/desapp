@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('tracking-error', handler);
     return () => ipcRenderer.removeListener('tracking-error', handler);
   },
+  setTrackingContext: (context) => ipcRenderer.invoke('set-tracking-context', context),
 });
 
 // Add a property to window to verify preload is working

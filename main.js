@@ -13,6 +13,47 @@ let lastMouseEventSent = 0;
 
 // Update the tracking interval to 5 minutes (300,000 ms)
 const SCREENSHOT_INTERVAL = 5 * 60 * 1000;
+let currentProjectID = null;
+let currentUserID = null;
+let currentTaskID = null;
+async function saveToWorkdiary(data) {
+  const mysql = require('mysql2/promise');
+
+  try {
+    const connection = await mysql.createConnection({
+      host: 'localhost',     // Replace with your database host
+      user: 'root', // Replace with your database username
+      password: 'Vishal@003', // Replace with your database password
+      database: 'vwsrv'
+    });
+
+    const query = `
+      INSERT INTO workdiary 
+      (projectID, userID, taskID, screenshotTimeStamp, calcTimeStamp, 
+       imageURL, thumbNailURL, activeFlag, deletedFlag, createdAt, modifiedAT)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    await connection.execute(query, [
+      data.projectID,
+      data.userID,
+      data.taskID,
+      data.screenshotTimeStamp,
+      data.calcTimeStamp,
+      data.imageURL,
+      data.thumbNailURL,
+      data.activeFlag,
+      data.deletedFlag,
+      data.createdAt,
+      data.modifiedAT
+    ]);
+
+    await connection.end();
+  } catch (error) {
+    console.error('Database error:', error);
+    throw error;
+  }
+}
 
 async function takeScreenshot() {
   try {
@@ -21,41 +62,36 @@ async function takeScreenshot() {
       thumbnailSize: screen.getPrimaryDisplay().workAreaSize
     });
 
-    const now = new Date();
-    
-    // Format: YYYY-MM-DD
-    const dateFolder = now.toISOString().split('T')[0];
-    
-    // Create hour interval string (e.g., "14-15")
-    const currentHour = now.getHours();
-    const nextHour = (currentHour + 1) % 24;
-    const hourInterval = `${currentHour.toString().padStart(2, '0')}-${nextHour.toString().padStart(2, '0')}`;
-    
-    const screenshotDir = path.join(
-      __dirname,
-      'public',
-      'screenshots',
-      dateFolder
-    );
+    const screenshotBuffer = sources[0].thumbnail.toPNG();
+    const base64Image = screenshotBuffer.toString('base64');
+    const base64DataUrl = `data:image/png;base64,${base64Image}`;
 
-    // Ensure directory exists
-    fs.mkdirSync(screenshotDir, { recursive: true });
+    // Create thumbnail (smaller version)
+    const { nativeImage } = require('electron');
+    const image = nativeImage.createFromBuffer(screenshotBuffer);
+    const thumbnailSize = { width: 200, height: 150 }; // Adjust as needed
+    const thumbnail = image.resize(thumbnailSize);
+    const thumbnailBase64 = `data:image/png;base64,${thumbnail.toPNG().toString('base64')}`;
 
-    // Format: screenshot-YYYY-MM-DD-HH-MM-SS.png
-    const timestamp = now.toISOString().replace(/[:.]/g, '-').replace('T', '_');
-    const screenshotPath = path.join(
-      screenshotDir,
-      `screenshot-${timestamp}.png`
-    );
+    // Save to database
+    const workdiaryData = {
+      projectID: currentProjectID, // You'll need to pass this
+      userID: currentUserID,       // You'll need to pass this
+      taskID: currentTaskID,       // You'll need to pass this
+      screenshotTimeStamp: new Date(),
+      calcTimeStamp: new Date(),
+      imageURL: base64DataUrl,
+      thumbNailURL: thumbnailBase64,
+      activeFlag: 1,
+      deletedFlag: 0,
+      createdAt: new Date(),
+      modifiedAT: new Date()
+    };
 
-    // Save the screenshot
-    fs.writeFileSync(
-      screenshotPath,
-      sources[0].thumbnail.toPNG()
-    );
+    await saveToWorkdiary(workdiaryData);
 
-    console.log('Screenshot saved to:', screenshotPath);
-    return { success: true, path: screenshotPath };
+    console.log('Screenshot saved to database');
+    return { success: true, message: 'Screenshot saved to database' };
   } catch (error) {
     console.error('Error taking screenshot:', error);
     return { success: false, error: error.message };
@@ -79,9 +115,9 @@ function startTracking() {
   // Start listening to all events
   uIOhook.start();
   
-  // Set up interval for screenshots (every 5 minutes)
+  // Set up interval for screenshots (every 5 minutes) - ONLY when tracking starts
   trackingInterval = setInterval(takeScreenshot, SCREENSHOT_INTERVAL);
-
+  
   // Mouse move event
   uIOhook.on('mousemove', (event) => {
     const now = Date.now();
@@ -135,13 +171,13 @@ function startTracking() {
 function stopTracking() {
   if (!isTracking) return;
   isTracking = false;
-  
+
   // Clear the screenshot interval
   if (trackingInterval) {
     clearInterval(trackingInterval);
     trackingInterval = null;
   }
-  
+
   uIOhook.removeAllListeners();
   console.log('Stopped tracking global input events');
   if (mainWindow) {
@@ -178,6 +214,27 @@ ipcMain.on('tracking-error', (event, error) => {
 ipcMain.handle('get-tracking-status', async () => {
   return { isTracking };
 });
+ipcMain.handle('set-tracking-context', (event, context) => {
+  currentProjectID = context.projectID;
+  currentUserID = context.userID;
+  
+  // Priority order: subactionItemID > actionItemID > subtaskID > taskID
+  if (context.subactionItemID) {
+    currentTaskID = context.subactionItemID;
+    console.log('Tracking subaction item with ID:', currentTaskID);
+  } else if (context.actionItemID) {
+    currentTaskID = context.actionItemID;
+    console.log('Tracking action item with ID:', currentTaskID);
+  } else if (context.subtaskID) {
+    currentTaskID = context.subtaskID;
+    console.log('Tracking subtask with ID:', currentTaskID);
+  } else {
+    currentTaskID = context.taskID;
+    console.log('Tracking task with ID:', currentTaskID);
+  }
+  
+  return { success: true };
+});
 ipcMain.handle('take-screenshot', takeScreenshot);
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -188,7 +245,7 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    
+
   });
 
   // Load the app
