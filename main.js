@@ -32,10 +32,10 @@ async function takeScreenshot() {
     const hourInterval = `${currentHour.toString().padStart(2, '0')}-${nextHour.toString().padStart(2, '0')}`;
     
     const screenshotDir = path.join(
-      'C:/Users/Sunderesh/OneDrive/Pictures/usertracking',
+      __dirname,
+      'public',
       'screenshots',
-      dateFolder,
-      hourInterval
+      dateFolder
     );
 
     // Ensure directory exists
@@ -78,9 +78,6 @@ function startTracking() {
   
   // Start listening to all events
   uIOhook.start();
-
-  // Take initial screenshot immediately
-  takeScreenshot();
   
   // Set up interval for screenshots (every 5 minutes)
   trackingInterval = setInterval(takeScreenshot, SCREENSHOT_INTERVAL);

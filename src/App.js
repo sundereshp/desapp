@@ -411,7 +411,7 @@ function App() {
             }
           });
         }
-      }, 10000); // 10 seconds
+      }, 300000); // 5 minutes (300,000 ms)
 
       setScreenshotInterval(interval);
     } else if (screenshotInterval) {
