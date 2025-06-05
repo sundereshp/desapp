@@ -18,47 +18,49 @@ const SCREENSHOT_INTERVAL = 1 * 60 * 1000;
 let currentProjectID = null;
 let currentUserID = null;
 let currentTaskID = null;
+// Remove the original saveToWorkdiary function and replace with:
 async function saveToWorkdiary(data) {
-  const mysql = require('mysql2/promise');
-
   try {
-    const connection = await mysql.createConnection({
-      host: 'localhost',     // Replace with your database host
-      user: 'root', // Replace with your database username
-      password: 'Vishal@003', // Replace with your database password
-      database: 'vwsrv'
+    const response = await fetch('http://localhost:5001/sunderesh/backend/workdiary', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        projectID: data.projectID,
+        userID: data.userID,
+        taskID: data.taskID,
+        screenshotTimeStamp: data.screenshotTimeStamp.toISOString(),
+        calcTimeStamp: data.calcTimeStamp.toISOString(),
+        keyboardJSON: JSON.parse(data.keyboardJSON),
+        mouseJSON: JSON.parse(data.mouseJSON),
+        imageURL: data.imageURL,
+        activeFlag: 1,
+        deletedFlag: 0
+      })
     });
 
-    const query = `
-      INSERT INTO workdiary 
-      (projectID, userID, taskID, screenshotTimeStamp, calcTimeStamp, 
-       imageURL, thumbNailURL, activeFlag, deletedFlag, createdAt, modifiedAT,
-       mouseJSON, keyboardJSON)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Server responded with:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText
+      });
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
 
-    await connection.execute(query, [
-      data.projectID,
-      data.userID,
-      data.taskID,
-      data.screenshotTimeStamp,
-      data.calcTimeStamp,
-      data.imageURL,
-      data.thumbNailURL,
-      data.activeFlag,
-      data.deletedFlag,
-      data.createdAt,
-      data.modifiedAT,
-      data.mouseJSON,
-      data.keyboardJSON
-    ]);
-
-    await connection.end();
+    console.log('Data saved via backend API');
+    return await response.json();
   } catch (error) {
-    console.error('Database error:', error);
+    console.error('API request failed:', {
+      message: error.message,
+      stack: error.stack
+    });
     throw error;
   }
 }
+
 
 async function takeScreenshot(mouseClickCount, keyboardPressCount) {
   try {
@@ -67,15 +69,13 @@ async function takeScreenshot(mouseClickCount, keyboardPressCount) {
       thumbnailSize: screen.getPrimaryDisplay().workAreaSize
     });
 
-    const screenshotBuffer = sources[0].thumbnail.toPNG();
-    const base64Image = screenshotBuffer.toString('base64');
-    const base64DataUrl = base64Image;
-
-    // Create thumbnail (smaller version)
-    const thumbnailSize = { width: 200, height: 150 }; // Adjust as needed
-    const thumbnail = sources[0].thumbnail.resize(thumbnailSize);
-    const thumbnailBuffer = thumbnail.toPNG();  // Convert thumbnail to PNG buffer
-    const thumbnailBase64 = thumbnailBuffer.toString('base64');
+    // Convert to base64 strings
+    const fullSizeBase64 = sources[0].thumbnail.resize({ 
+      width: 1200, height: 800,quality: 'good' 
+    }).toJPEG(60).toString('base64');
+    // const thumbnailBase64 = sources[0].thumbnail.resize({ 
+    //   width: 400, height: 300,quality: 'good' 
+    // }).toJPEG(50).toString('base64');
 
     const workdiaryData = {
       projectID: currentProjectID,
@@ -85,18 +85,18 @@ async function takeScreenshot(mouseClickCount, keyboardPressCount) {
       calcTimeStamp: new Date(),
       keyboardJSON: JSON.stringify({ count: keyboardPressCount }),
       mouseJSON: JSON.stringify({ count: mouseClickCount }),
-      imageURL: base64DataUrl,
-      thumbNailURL: thumbnailBase64,
+      imageURL: fullSizeBase64,
+      // thumbNailURL: thumbnailBase64,
       activeFlag: 1,
       deletedFlag: 0,
       createdAt: new Date(),
       modifiedAT: new Date()
     };
 
-    await saveToWorkdiary(workdiaryData);
-
-    console.log('Screenshot saved to database with activity data');
-    return { success: true, message: 'Screenshot saved to database' };
+    console.log('Screenshot data size:', 
+      JSON.stringify(workdiaryData).length / 1024, 'KB');
+    
+    return await saveToWorkdiary(workdiaryData);
   } catch (error) {
     console.error('Error taking screenshot:', error);
     return { success: false, error: error.message };
@@ -247,9 +247,17 @@ ipcMain.handle('set-tracking-context', (event, context) => {
 
   return { success: true };
 });
-ipcMain.handle('take-screenshot', (event, mouseClickCount, keyboardPressCount) => {
-  console.log('take-screenshot IPC handler:', { mouseClickCount, keyboardPressCount }); // Add this line
-  return takeScreenshot(mouseClickCount, keyboardPressCount);
+ipcMain.handle('take-screenshot', async (_, mouse, keyboard) => {
+  try {
+    return await takeScreenshot(mouse, keyboard);
+  } catch (error) {
+    console.error('Screenshot IPC failed:', error);
+    mainWindow.webContents.send('tracking-error', {
+      type: 'api-failure',
+      message: error.message
+    });
+    return { success: false };
+  }
 });
 function createWindow() {
   mainWindow = new BrowserWindow({
