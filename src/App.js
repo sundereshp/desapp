@@ -589,25 +589,25 @@ function App() {
     fetchData();
   }, []);
 
-  // Take screenshots at regular intervals when tracking is active
-  useEffect(() => {
-    let interval;
+  // // Take screenshots at regular intervals when tracking is active
+  // useEffect(() => {
+  //   let interval;
 
-    if (isTracking && window.electronAPI) {
-      // Take initial screenshot after a short delay to ensure we have events
-      const initialTimeout = setTimeout(() => {
-        // Set up interval for subsequent screenshots
-        interval = setInterval(() => {
-          takeScreenshotWithCounts();
-        }, 1 * 60 * 1000); // 1 minute
-      }, 2000); // 2 second delay before first screenshot
+  //   if (isTracking && window.electronAPI) {
+  //     // Take initial screenshot after a short delay to ensure we have events
+  //     const initialTimeout = setTimeout(() => {
+  //       // Set up interval for subsequent screenshots
+  //       interval = setInterval(() => {
+  //         takeScreenshotWithCounts();
+  //       }, 1 * 60 * 1000); // 1 minute
+  //     }, 2000); // 2 second delay before first screenshot
 
-      return () => {
-        if (initialTimeout) clearTimeout(initialTimeout);
-        if (interval) clearInterval(interval);
-      };
-    }
-  }, [isTracking, takeScreenshotWithCounts]); 
+  //     return () => {
+  //       if (initialTimeout) clearTimeout(initialTimeout);
+  //       if (interval) clearInterval(interval);
+  //     };
+  //   }
+  // }, [isTracking, takeScreenshotWithCounts]); 
   const renderSelectionUI = () => {
     return (
       <div className="selection-container">

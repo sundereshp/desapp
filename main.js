@@ -10,6 +10,8 @@ let trackingInterval;
 let lastMousePosition = { x: 0, y: 0 };
 const MOUSE_MOVE_THROTTLE_MS = 100; // Adjust this value (100ms default)
 let lastMouseEventSent = 0;
+let mouseClickCount = 0;
+let keyboardPressCount = 0;
 
 // Update the tracking interval to 5 minutes (300,000 ms)
 const SCREENSHOT_INTERVAL = 1 * 60 * 1000;
@@ -67,14 +69,14 @@ async function takeScreenshot(mouseClickCount, keyboardPressCount) {
 
     const screenshotBuffer = sources[0].thumbnail.toPNG();
     const base64Image = screenshotBuffer.toString('base64');
-    const base64DataUrl = `data:image/png;base64,${base64Image}`;
+    const base64DataUrl = base64Image;
 
     // Create thumbnail (smaller version)
     const { nativeImage } = require('electron');
     const image = nativeImage.createFromBuffer(screenshotBuffer);
     const thumbnailSize = { width: 200, height: 150 }; // Adjust as needed
     const thumbnail = image.resize(thumbnailSize);
-    const thumbnailBase64 = thumbnail.toDataURL();
+    const thumbnailBase64 = thumbnail;
 
     const workdiaryData = {
       projectID: currentProjectID,
@@ -120,7 +122,12 @@ function startTracking() {
   uIOhook.start();
 
   // Set up interval for screenshots (every 5 minutes) - ONLY when tracking starts
-  trackingInterval = setInterval(takeScreenshot, SCREENSHOT_INTERVAL);
+  trackingInterval = setInterval(() => {
+    // Only take screenshot if we have activity counts
+    if (typeof mouseClickCount !== 'undefined' && typeof keyboardPressCount !== 'undefined') {
+      takeScreenshot(mouseClickCount, keyboardPressCount);
+    }
+  }, SCREENSHOT_INTERVAL);
 
   // Mouse move event
   uIOhook.on('mousemove', (event) => {
@@ -140,6 +147,7 @@ function startTracking() {
 
   // Mouse click event
   uIOhook.on('click', (event) => {
+    mouseClickCount++;
     sendGlobalEvent({
       type: 'mouseclick',
       button: event.button,
@@ -150,6 +158,7 @@ function startTracking() {
 
   // Key press event
   uIOhook.on('keydown', (event) => {
+    keyboardPressCount++;
     sendGlobalEvent({
       type: 'keydown',
       keycode: event.keycode,
