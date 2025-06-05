@@ -72,11 +72,10 @@ async function takeScreenshot(mouseClickCount, keyboardPressCount) {
     const base64DataUrl = base64Image;
 
     // Create thumbnail (smaller version)
-    const { nativeImage } = require('electron');
-    const image = nativeImage.createFromBuffer(screenshotBuffer);
     const thumbnailSize = { width: 200, height: 150 }; // Adjust as needed
-    const thumbnail = image.resize(thumbnailSize);
-    const thumbnailBase64 = thumbnail;
+    const thumbnail = sources[0].thumbnail.resize(thumbnailSize);
+    const thumbnailBuffer = thumbnail.toPNG();  // Convert thumbnail to PNG buffer
+    const thumbnailBase64 = thumbnailBuffer.toString('base64');
 
     const workdiaryData = {
       projectID: currentProjectID,
