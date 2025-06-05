@@ -83,7 +83,12 @@ function App() {
           taskID: selectedTask.id,
           subtaskID: selections.subtask ? tasks.find(t => t.name === selections.subtask).id : null,
           actionItemID: selections.action ? tasks.find(t => t.name === selections.action).id : null,
-          subactionItemID: selections.subaction ? tasks.find(t => t.name === selections.subaction).id : null
+          subactionItemID: selections.subaction ? tasks.find(t => t.name === selections.subaction).id : null,
+          taskname: selectedTask.name,
+          subtaskname: selections.subtask ? tasks.find(t => t.name === selections.subtask).name : null,
+          actionname: selections.action ? tasks.find(t => t.name === selections.action).name : null,
+          subactionname: selections.subaction ? tasks.find(t => t.name === selections.subaction).name : null,
+          projectname: selectedProject.name
         });
       }
 

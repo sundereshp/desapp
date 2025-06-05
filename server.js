@@ -31,6 +31,8 @@ app.post('/sunderesh/backend/workdiary', async (req, res) => {
         const {
             projectID,
             userID,
+            projectName,
+            taskName,
             taskID,
             screenshotTimeStamp,
             calcTimeStamp,
@@ -39,6 +41,7 @@ app.post('/sunderesh/backend/workdiary', async (req, res) => {
             imageURL,
             activeFlag,
             deletedFlag,
+            activeMins,
             createdAt,
             modifiedAT
         } = req.body;
@@ -54,20 +57,23 @@ app.post('/sunderesh/backend/workdiary', async (req, res) => {
         connection = await pool.getConnection();
         const [result] = await connection.execute(`
         INSERT INTO workdiary 
-        (projectID, userID, taskID, screenshotTimeStamp, calcTimeStamp, 
-         keyboardJSON, mouseJSON, imageURL, activeFlag, 
-         deletedFlag, createdAt, modifiedAT) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, NOW(), NOW())
-      `, [
-            projectID,
-            userID,
-            taskID,
-            new Date(screenshotTimeStamp),
-            new Date(calcTimeStamp),
+    (projectID, projectName, userID, taskID, taskName, screenshotTimeStamp, calcTimeStamp, 
+     keyboardJSON, mouseJSON, imageURL, activeFlag, activeMins, deletedFlag, createdAt, modifiedAT) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+`, [
+            projectID || null,
+            projectName || 'Unknown Project',
+            userID || 1,
+            taskID || null,
+            taskName || 'Unknown Task',
+            screenshotTimeStamp ? new Date(screenshotTimeStamp) : new Date(),
+            calcTimeStamp ? new Date(calcTimeStamp) : new Date(),
             JSON.stringify(keyboardJSON || {}),
             JSON.stringify(mouseJSON || {}),
-            imageURL
-            // Removed the extra parameters that were causing the error
+            imageURL || '',
+            activeFlag !== undefined ? activeFlag : 1,
+            activeMins || 0,  // Added activeMins with default 0
+            deletedFlag !== undefined ? deletedFlag : 0
         ]);
 
         connection.release();

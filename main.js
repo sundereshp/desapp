@@ -14,10 +14,12 @@ let mouseClickCount = 0;
 let keyboardPressCount = 0;
 
 // Update the tracking interval to 5 minutes (300,000 ms)
-const SCREENSHOT_INTERVAL = 1 * 60 * 1000;
+const SCREENSHOT_INTERVAL = 5 * 60 * 1000;
 let currentProjectID = null;
 let currentUserID = null;
 let currentTaskID = null;
+let currentProjectName = null;
+let currentTaskName = null;
 // Remove the original saveToWorkdiary function and replace with:
 async function saveToWorkdiary(data) {
   try {
@@ -28,6 +30,8 @@ async function saveToWorkdiary(data) {
       },
       body: JSON.stringify({
         projectID: data.projectID,
+        projectName: data.projectName,
+        taskName: data.taskName,
         userID: data.userID,
         taskID: data.taskID,
         screenshotTimeStamp: data.screenshotTimeStamp.toISOString(),
@@ -79,6 +83,8 @@ async function takeScreenshot(mouseClickCount, keyboardPressCount) {
 
     const workdiaryData = {
       projectID: currentProjectID,
+      projectName: currentProjectName,
+      taskName: currentTaskName,
       userID: currentUserID,
       taskID: currentTaskID,
       screenshotTimeStamp: new Date(),
@@ -229,19 +235,24 @@ ipcMain.handle('get-tracking-status', async () => {
 ipcMain.handle('set-tracking-context', (event, context) => {
   currentProjectID = context.projectID;
   currentUserID = context.userID;
-
+  currentProjectName = context.projectname;
+  currentTaskName=context.taskname;
   // Priority order: subactionItemID > actionItemID > subtaskID > taskID
   if (context.subactionItemID) {
     currentTaskID = context.subactionItemID;
+    currentTaskName = context.subactionname;
     console.log('Tracking subaction item with ID:', currentTaskID);
   } else if (context.actionItemID) {
     currentTaskID = context.actionItemID;
+    currentTaskName = context.actionname;
     console.log('Tracking action item with ID:', currentTaskID);
   } else if (context.subtaskID) {
     currentTaskID = context.subtaskID;
+    currentTaskName = context.subtaskname;
     console.log('Tracking subtask with ID:', currentTaskID);
   } else {
     currentTaskID = context.taskID;
+    currentTaskName = context.taskname;
     console.log('Tracking task with ID:', currentTaskID);
   }
 
