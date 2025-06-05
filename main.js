@@ -12,7 +12,7 @@ const MOUSE_MOVE_THROTTLE_MS = 100; // Adjust this value (100ms default)
 let lastMouseEventSent = 0;
 
 // Update the tracking interval to 5 minutes (300,000 ms)
-const SCREENSHOT_INTERVAL = 5 * 60 * 1000;
+const SCREENSHOT_INTERVAL = 1 * 60 * 1000;
 let currentProjectID = null;
 let currentUserID = null;
 let currentTaskID = null;
@@ -30,8 +30,9 @@ async function saveToWorkdiary(data) {
     const query = `
       INSERT INTO workdiary 
       (projectID, userID, taskID, screenshotTimeStamp, calcTimeStamp, 
-       imageURL, thumbNailURL, activeFlag, deletedFlag, createdAt, modifiedAT)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       imageURL, thumbNailURL, activeFlag, deletedFlag, createdAt, modifiedAT,
+       mouseJSON, keyboardJSON)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     await connection.execute(query, [
@@ -45,7 +46,9 @@ async function saveToWorkdiary(data) {
       data.activeFlag,
       data.deletedFlag,
       data.createdAt,
-      data.modifiedAT
+      data.modifiedAT,
+      data.mouseJSON,
+      data.keyboardJSON
     ]);
 
     await connection.end();
@@ -55,7 +58,7 @@ async function saveToWorkdiary(data) {
   }
 }
 
-async function takeScreenshot() {
+async function takeScreenshot(mouseClickCount, keyboardPressCount) {
   try {
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
@@ -71,15 +74,16 @@ async function takeScreenshot() {
     const image = nativeImage.createFromBuffer(screenshotBuffer);
     const thumbnailSize = { width: 200, height: 150 }; // Adjust as needed
     const thumbnail = image.resize(thumbnailSize);
-    const thumbnailBase64 = `data:image/png;base64,${thumbnail.toPNG().toString('base64')}`;
+    const thumbnailBase64 = thumbnail.toDataURL();
 
-    // Save to database
     const workdiaryData = {
-      projectID: currentProjectID, // You'll need to pass this
-      userID: currentUserID,       // You'll need to pass this
-      taskID: currentTaskID,       // You'll need to pass this
+      projectID: currentProjectID,
+      userID: currentUserID,
+      taskID: currentTaskID,
       screenshotTimeStamp: new Date(),
       calcTimeStamp: new Date(),
+      keyboardJSON: JSON.stringify({ count: keyboardPressCount }),
+      mouseJSON: JSON.stringify({ count: mouseClickCount }),
       imageURL: base64DataUrl,
       thumbNailURL: thumbnailBase64,
       activeFlag: 1,
@@ -90,7 +94,7 @@ async function takeScreenshot() {
 
     await saveToWorkdiary(workdiaryData);
 
-    console.log('Screenshot saved to database');
+    console.log('Screenshot saved to database with activity data');
     return { success: true, message: 'Screenshot saved to database' };
   } catch (error) {
     console.error('Error taking screenshot:', error);
@@ -111,13 +115,13 @@ function sendGlobalEvent(event) {
 function startTracking() {
   if (isTracking) return;
   isTracking = true;
-  
+
   // Start listening to all events
   uIOhook.start();
-  
+
   // Set up interval for screenshots (every 5 minutes) - ONLY when tracking starts
   trackingInterval = setInterval(takeScreenshot, SCREENSHOT_INTERVAL);
-  
+
   // Mouse move event
   uIOhook.on('mousemove', (event) => {
     const now = Date.now();
@@ -217,7 +221,7 @@ ipcMain.handle('get-tracking-status', async () => {
 ipcMain.handle('set-tracking-context', (event, context) => {
   currentProjectID = context.projectID;
   currentUserID = context.userID;
-  
+
   // Priority order: subactionItemID > actionItemID > subtaskID > taskID
   if (context.subactionItemID) {
     currentTaskID = context.subactionItemID;
@@ -232,10 +236,13 @@ ipcMain.handle('set-tracking-context', (event, context) => {
     currentTaskID = context.taskID;
     console.log('Tracking task with ID:', currentTaskID);
   }
-  
+
   return { success: true };
 });
-ipcMain.handle('take-screenshot', takeScreenshot);
+ipcMain.handle('take-screenshot', (event, mouseClickCount, keyboardPressCount) => {
+  console.log('take-screenshot IPC handler:', { mouseClickCount, keyboardPressCount }); // Add this line
+  return takeScreenshot(mouseClickCount, keyboardPressCount);
+});
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 600,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef,useCallback } from 'react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TaskProvider } from './contexts/TaskContext';
 import Navbar from './components/Navbar';
@@ -35,7 +35,6 @@ function App() {
   const [timerRunning, setTimerRunning] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerRef = useRef(null);
-  
   const [projects, setProjects] = useState({});
   const [projectsList, setProjectsList] = useState([]); // Store projects as an array of objects with id and name
   const [loading, setLoading] = useState(true);
@@ -43,131 +42,26 @@ function App() {
   const [tasks, setTasks] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [tasksLoading, setTasksLoading] = useState(false);
-  const [allTasks, setAllTasks] = useState([]); // Store all tasks
+  const [allTasks, setAllTasks] = useState([]);
+  const [isTracking, setIsTracking] = useState(false);
+  const [events, setEvents] = useState([]);
+  const [error, setError] = useState(null);
+  const eventsEndRef = useRef(null);
+  const [isElectron, setIsElectron] = useState(false);
+  const [apiReady, setApiReady] = useState(false);
 
-  useEffect(() => {
-    const fetchAllTasks = async () => {
-      try {
-        setTasksLoading(true);
-        const tasksResponse = await fetch('http://localhost:5000/sunderesh/backend/tasks');
-        
-        if (!tasksResponse.ok) {
-          throw new Error('Failed to fetch tasks');
-        }
-        
-        const tasksData = await tasksResponse.json();
-        console.log('All tasks data:', tasksData);
-        
-        // Process tasks data - adjust this based on the actual API response structure
-        if (Array.isArray(tasksData)) {
-          setAllTasks(tasksData);
-        } else if (tasksData.tasks && Array.isArray(tasksData.tasks)) {
-          setAllTasks(tasksData.tasks);
-        }
-      } catch (err) {
-        console.error('Error fetching tasks:', err);
-      } finally {
-        setTasksLoading(false);
-      }
-    };
+  const maxEvents = 1000;
+  const [screenshotInterval, setScreenshotInterval] = useState(null);
+  const [lastScreenshot, setLastScreenshot] = useState(null);
 
-    fetchAllTasks();
-  }, []);
+  const [stats, setStats] = useState({
+    mouseClicks: 0,
+    keyPresses: 0,
+    mouseMoves: 0
+  });
+  const statsRef = useRef(stats);
+  // Update the ref when stats change
 
-  useEffect(() => {
-    if (!selectedProjectId) {
-      setTasks([]);
-      return;
-    }
-
-    // Find the selected project's ID from projectsList
-    const selectedProject = projectsList.find(p => p.name === selectedProjectId);
-    if (!selectedProject) {
-      setTasks([]);
-      return;
-    }
-
-    // Filter only level 1 tasks for the selected project
-    const filteredTasks = allTasks.filter(task => 
-      task.projectID == selectedProject.id && // Use loose equality for type safety
-      task.taskLevel === 1
-    );
-    
-    console.log('Level 1 tasks for project', selectedProjectId, ':', filteredTasks);
-    setTasks(filteredTasks);
-  }, [selectedProjectId, allTasks, projectsList]);
-
-  useEffect(() => {
-    console.log('Selected Project ID:', selectedProjectId);
-    console.log('All tasks:', allTasks);
-    
-    if (!selectedProjectId) {
-      console.log('No project selected, clearing tasks');
-      setTasks([]);
-      return;
-    }
-
-    // Find the selected project's ID from projectsList
-    const selectedProject = projectsList.find(p => p.name === selectedProjectId);
-    if (!selectedProject) {
-      console.log('Selected project not found in projects list');
-      setTasks([]);
-      return;
-    }
-
-    console.log('Looking for tasks with projectID:', selectedProject.id);
-    
-    // Filter tasks that belong to the selected project
-    const filteredTasks = allTasks.filter(task => {
-      const matches = task.projectID === selectedProject.id || 
-                    task.projectID?.toString() === selectedProject.id.toString() && task.level === 1;
-      console.log(`Task: ${task.name}, ProjectID: ${task.projectID}, Matches: ${matches}`);
-      return matches;
-    });
-    
-    console.log('Filtered tasks for project', selectedProjectId, ':', filteredTasks);
-    setTasks(filteredTasks);
-  }, [selectedProjectId, allTasks, projectsList]);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Fetch projects
-        const projectsResponse = await fetch('http://localhost:5000/sunderesh/backend/projects');
-        if (!projectsResponse.ok) {
-          throw new Error('Failed to fetch projects');
-        }
-        const projectsData = await projectsResponse.json();
-        console.log('Projects data:', projectsData);
-        
-        // Process projects data
-        const projectsMap = {};
-        const projectsArray = [];
-        
-        if (Array.isArray(projectsData)) {
-          projectsData.forEach(project => {
-            if (project && project.id && project.name) {
-              projectsMap[project.name] = {};
-              projectsArray.push({
-                id: project.id,
-                name: project.name
-              });
-            }
-          });
-        } 
-        
-        console.log('Processed projects:', projectsMap);
-        setProjects(projectsMap);
-        setProjectsList(projectsArray);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error fetching projects:', err);
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
 
   const startTimer = async () => {
     if (!timerRunning) {
@@ -177,11 +71,11 @@ function App() {
       timerRef.current = setInterval(() => {
         setElapsedTime(Date.now() - startTime);
       }, 1000);
-  
+
       // Set tracking context before starting
       const selectedProject = projectsList.find(p => p.name === selections.project);
       const selectedTask = tasks.find(t => t.name === selections.task);
-      
+
       if (selectedProject && selectedTask) {
         await window.electronAPI.setTrackingContext({
           projectID: selectedProject.id,
@@ -192,7 +86,7 @@ function App() {
           subactionItemID: selections.subaction ? tasks.find(t => t.name === selections.subaction).id : null
         });
       }
-  
+
       // Start tracking
       if (!isTracking) {
         try {
@@ -208,7 +102,7 @@ function App() {
   const stopTimer = async () => {
     clearInterval(timerRef.current);
     setTimerRunning(false);
-  
+
     // Pause tracking but stay on timer page
     if (isTracking) {
       try {
@@ -218,11 +112,11 @@ function App() {
       }
     }
   };
-  
+
   const pauseTimer = async () => {
     clearInterval(timerRef.current);
     setTimerRunning(false);
-    
+
     // Pause tracking but stay on timer page
     if (isTracking) {
       try {
@@ -271,7 +165,7 @@ function App() {
     if (level === 'project') {
       handleProjectSelect(value);
     }
-    
+
     setSelections(prev => {
       const newSelections = { ...prev, [level]: value };
       // Clear all dependent selections when a parent changes
@@ -307,10 +201,10 @@ function App() {
           if (!selections.task) return [];
           const selectedTask = tasks.find(t => t.name === selections.task);
           if (!selectedTask) return [];
-          
+
           // Only show level 2 tasks that are children of the selected task
-          return allTasks.filter(task => 
-            task.taskLevel === 2 && 
+          return allTasks.filter(task =>
+            task.taskLevel === 2 &&
             task.parentID == selectedTask.id // Loose equality for type safety
           ).map(task => ({
             name: task.name,
@@ -321,10 +215,10 @@ function App() {
           if (!selections.subtask) return [];
           const selectedSubtask = allTasks.find(t => t.name === selections.subtask);
           if (!selectedSubtask) return [];
-          
+
           // Only show level 3 tasks that are children of the selected subtask
-          return allTasks.filter(task => 
-            task.taskLevel === 3 && 
+          return allTasks.filter(task =>
+            task.taskLevel === 3 &&
             task.parentID == selectedSubtask.id
           ).map(task => ({
             name: task.name,
@@ -335,10 +229,10 @@ function App() {
           if (!selections.action) return [];
           const selectedAction = allTasks.find(t => t.name === selections.action);
           if (!selectedAction) return [];
-          
+
           // Only show level 4 tasks that are children of the selected action
-          return allTasks.filter(task => 
-            task.taskLevel === 4 && 
+          return allTasks.filter(task =>
+            task.taskLevel === 4 &&
             task.parentID == selectedAction.id
           ).map(task => ({
             name: task.name,
@@ -353,176 +247,25 @@ function App() {
       return [];
     }
   };
-  const [isTracking, setIsTracking] = useState(false);
-  const [events, setEvents] = useState([]);
-  const [error, setError] = useState(null);
-  const eventsEndRef = useRef(null);
-  const [isElectron, setIsElectron] = useState(false);
-  const [apiReady, setApiReady] = useState(false);
 
-  const maxEvents = 1000;
-  const [screenshotInterval, setScreenshotInterval] = useState(null);
-  const [lastScreenshot, setLastScreenshot] = useState(null);
-
-  // Calculate stats from events array
-  const stats = useMemo(() => {
-    const calculatedStats = { mouseClicks: 0, keyPresses: 0, mouseMoves: 0 };
-
-    events.forEach(event => {
-      try {
-        if (!event || typeof event !== 'object') {
-          console.warn('Invalid event object:', event);
-          return;
-        }
-
-        if (!event.type) {
-          console.warn('Event missing type property:', event);
-          return;
-        }
-
-        switch (event.type) {
-          case 'mouseclick':
-            calculatedStats.mouseClicks++;
-            break;
-          case 'keydown':
-            calculatedStats.keyPresses++;
-            break;
-          case 'mousemove':
-            calculatedStats.mouseMoves++;
-            break;
-          default:
-            console.log('Unhandled event type:', event.type, 'event:', event);
-        }
-      } catch (error) {
-        console.error('Error processing event:', error, 'Event:', event);
-      }
-    });
-
-    return calculatedStats;
-  }, [events]);
-  useEffect(() => {
-    if (isTracking) {
-      // Take initial screenshot immediately
+ 
+  const takeScreenshotWithCounts = useCallback(async () => {
+    try {
       if (window.electronAPI?.takeScreenshot) {
-        window.electronAPI.takeScreenshot().then(result => {
-          if (result.success) {
-            console.log('Initial screenshot taken:', result.path);
-            setLastScreenshot(result);
-          } else {
-            console.error('Failed to take initial screenshot:', result.error);
-          }
+        console.log('Taking screenshot with counts:', {
+          mouseClicks: statsRef.current.mouseClicks,
+          keyPresses: statsRef.current.keyPresses
         });
+        await window.electronAPI.takeScreenshot(
+          statsRef.current.mouseClicks,
+          statsRef.current.keyPresses
+        );
       }
-
-      // Set up interval for subsequent screenshots
-      const interval = setInterval(() => {
-        if (window.electronAPI?.takeScreenshot) {
-          window.electronAPI.takeScreenshot().then(result => {
-            if (result.success) {
-              console.log('Screenshot taken:', result.path);
-              setLastScreenshot(result);
-            } else {
-              console.error('Failed to take screenshot:', result.error);
-            }
-          });
-        }
-      }, 300000); // 5 minutes (300,000 ms)
-
-      setScreenshotInterval(interval);
-    } else if (screenshotInterval) {
-      // Clear the interval when tracking stops
-      clearInterval(screenshotInterval);
-      setScreenshotInterval(null);
-    }
-
-    // Clean up on unmount
-    return () => {
-      if (screenshotInterval) {
-        clearInterval(screenshotInterval);
-      }
-    };
-  }, [isTracking]);
-  useEffect(() => {
-    if (window.electronAPI) {
-      setIsElectron(true);
-      setApiReady(true);
-      console.log('Electron API is available');
-    } else {
-      setApiReady(true); // Still render UI
-      console.warn('Electron API is not available');
+    } catch (error) {
+      console.error('Error taking screenshot:', error);
     }
   }, []);
 
-  useEffect(() => {
-    if (!apiReady || !isElectron || !window.electronAPI?.onGlobalEvent) return;
-
-    // In App.js, update the handleGlobalEvent function
-    const handleGlobalEvent = (data) => {
-      try {
-        console.log('Raw event data received:', JSON.stringify(data, null, 2));
-
-        if (!data || typeof data !== 'object') {
-          console.error('Invalid event data received:', data);
-          return;
-        }
-
-        const newEvent = {
-          ...data,
-          id: Date.now() + Math.random().toString(36).substr(2, 9),
-          timestamp: new Date().toISOString()
-        };
-
-        console.log('Processed new event:', newEvent);
-
-        setEvents(prev => {
-          const updatedEvents = [...prev, newEvent].slice(-maxEvents);
-          console.log('Total events in state:', updatedEvents.length);
-          return updatedEvents;
-        });
-      } catch (error) {
-        console.error('Error in handleGlobalEvent:', error, 'Data:', data);
-      }
-    };
-
-    const cleanup = window.electronAPI.onGlobalEvent(handleGlobalEvent);
-    return () => {
-      if (typeof cleanup === 'function') cleanup();
-      else if (window.electronAPI?.removeGlobalEventListener) {
-        window.electronAPI.removeGlobalEventListener(handleGlobalEvent);
-      }
-    };
-  }, [isElectron, apiReady, maxEvents]);
-
-  useEffect(() => {
-    if (!isElectron || !window.electronAPI) return;
-
-    const cleanupTrackingStatus = window.electronAPI.onTrackingStatus((data) => {
-      setIsTracking(data.isTracking);
-    });
-
-    const cleanupTrackingError = window.electronAPI.onTrackingError((data) => {
-      setError(data.error);
-    });
-
-    // Initial status check
-    window.electronAPI.getTrackingStatus().then((status) => {
-      setIsTracking(status.isTracking);
-    });
-
-    return () => {
-      cleanupTrackingStatus();
-      cleanupTrackingError();
-    };
-  }, [isElectron]);
-
-  useEffect(() => {
-    if (eventsEndRef.current) {
-      const eventsContainer = eventsEndRef.current.parentElement;
-      if (eventsContainer) {
-        eventsContainer.scrollTop = eventsContainer.scrollHeight;
-      }
-    }
-  }, [events]);
 
   const handleStartTracking = async () => {
     try {
@@ -540,7 +283,7 @@ function App() {
       const result = await window.electronAPI.stopTracking();
       if (result.success) {
         setError(null);
-        
+
         // Don't set isTracking to false, just keep it true but paused
       }
     } catch (err) {
@@ -602,7 +345,269 @@ function App() {
       console.log('Quit clicked');
     }
   };
+  useEffect(() => {
+    if (window.electronAPI) {
+      setIsElectron(true);
+      setApiReady(true);
+      console.log('Electron API is available');
+    } else {
+      setApiReady(true); // Still render UI
+      console.warn('Electron API is not available');
+    }
+  }, []);
 
+  useEffect(() => {
+    if (!apiReady || !isElectron || !window.electronAPI?.onGlobalEvent) return;
+
+    // In App.js, update the handleGlobalEvent function
+    const handleGlobalEvent = (data) => {
+      try {
+        console.log('Raw event data received:', JSON.stringify(data, null, 2));
+
+        if (!data || typeof data !== 'object') {
+          console.error('Invalid event data received:', data);
+          return;
+        }
+
+        const newEvent = {
+          ...data,
+          id: Date.now() + Math.random().toString(36).substr(2, 9),
+          timestamp: new Date().toISOString()
+        };
+
+        console.log('Processed new event:', newEvent);
+
+        setEvents(prev => {
+          const updatedEvents = [...prev, newEvent].slice(-maxEvents);
+          console.log('Total events in state:', updatedEvents.length);
+          return updatedEvents;
+        });
+      } catch (error) {
+        console.error('Error in handleGlobalEvent:', error, 'Data:', data);
+      }
+    };
+
+    const cleanup = window.electronAPI.onGlobalEvent(handleGlobalEvent);
+    return () => {
+      if (typeof cleanup === 'function') cleanup();
+      else if (window.electronAPI?.removeGlobalEventListener) {
+        window.electronAPI.removeGlobalEventListener(handleGlobalEvent);
+      }
+    };
+  }, [isElectron, apiReady, maxEvents]);
+  useEffect(() => {
+    if (!isElectron || !window.electronAPI) return;
+
+    const cleanupTrackingStatus = window.electronAPI.onTrackingStatus((data) => {
+      setIsTracking(data.isTracking);
+    });
+
+    const cleanupTrackingError = window.electronAPI.onTrackingError((data) => {
+      setError(data.error);
+    });
+
+    // Initial status check
+    window.electronAPI.getTrackingStatus().then((status) => {
+      setIsTracking(status.isTracking);
+    });
+
+    return () => {
+      cleanupTrackingStatus();
+      cleanupTrackingError();
+    };
+  }, [isElectron]);
+
+  useEffect(() => {
+    if (eventsEndRef.current) {
+      const eventsContainer = eventsEndRef.current.parentElement;
+      if (eventsContainer) {
+        eventsContainer.scrollTop = eventsContainer.scrollHeight;
+      }
+    }
+  }, [events]);
+  useEffect(() => {
+    statsRef.current = stats;
+  }, [stats]);
+  useEffect(() => {
+    const calculatedStats = { mouseClicks: 0, keyPresses: 0, mouseMoves: 0 };
+
+    events.forEach(event => {
+      try {
+        if (!event || typeof event !== 'object') {
+          console.warn('Invalid event object:', event);
+          return;
+        }
+
+        if (!event.type) {
+          console.warn('Event missing type property:', event);
+          return;
+        }
+
+        switch (event.type) {
+          case 'mouseclick':
+            calculatedStats.mouseClicks++;
+            break;
+          case 'keydown':
+            calculatedStats.keyPresses++;
+            break;
+          case 'mousemove':
+            calculatedStats.mouseMoves++;
+            break;
+          default:
+            console.log('Unhandled event type:', event.type, 'event:', event);
+        }
+      } catch (error) {
+        console.error('Error processing event:', error, 'Event:', event);
+      }
+    });
+
+    setStats(calculatedStats);
+  }, [events]);
+
+
+  useEffect(() => {
+    const fetchAllTasks = async () => {
+      try {
+        setTasksLoading(true);
+        const tasksResponse = await fetch('http://localhost:5000/sunderesh/backend/tasks');
+
+        if (!tasksResponse.ok) {
+          throw new Error('Failed to fetch tasks');
+        }
+
+        const tasksData = await tasksResponse.json();
+        console.log('All tasks data:', tasksData);
+
+        // Process tasks data - adjust this based on the actual API response structure
+        if (Array.isArray(tasksData)) {
+          setAllTasks(tasksData);
+        } else if (tasksData.tasks && Array.isArray(tasksData.tasks)) {
+          setAllTasks(tasksData.tasks);
+        }
+      } catch (err) {
+        console.error('Error fetching tasks:', err);
+      } finally {
+        setTasksLoading(false);
+      }
+    };
+
+    fetchAllTasks();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setTasks([]);
+      return;
+    }
+
+    // Find the selected project's ID from projectsList
+    const selectedProject = projectsList.find(p => p.name === selectedProjectId);
+    if (!selectedProject) {
+      setTasks([]);
+      return;
+    }
+
+    // Filter only level 1 tasks for the selected project
+    const filteredTasks = allTasks.filter(task =>
+      task.projectID == selectedProject.id && // Use loose equality for type safety
+      task.taskLevel === 1
+    );
+
+    console.log('Level 1 tasks for project', selectedProjectId, ':', filteredTasks);
+    setTasks(filteredTasks);
+  }, [selectedProjectId, allTasks, projectsList]);
+
+  useEffect(() => {
+    console.log('Selected Project ID:', selectedProjectId);
+    console.log('All tasks:', allTasks);
+
+    if (!selectedProjectId) {
+      console.log('No project selected, clearing tasks');
+      setTasks([]);
+      return;
+    }
+
+    // Find the selected project's ID from projectsList
+    const selectedProject = projectsList.find(p => p.name === selectedProjectId);
+    if (!selectedProject) {
+      console.log('Selected project not found in projects list');
+      setTasks([]);
+      return;
+    }
+
+    console.log('Looking for tasks with projectID:', selectedProject.id);
+
+    // Filter tasks that belong to the selected project
+    const filteredTasks = allTasks.filter(task => {
+      const matches = task.projectID === selectedProject.id ||
+        task.projectID?.toString() === selectedProject.id.toString() && task.level === 1;
+      console.log(`Task: ${task.name}, ProjectID: ${task.projectID}, Matches: ${matches}`);
+      return matches;
+    });
+
+    console.log('Filtered tasks for project', selectedProjectId, ':', filteredTasks);
+    setTasks(filteredTasks);
+  }, [selectedProjectId, allTasks, projectsList]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch projects
+        const projectsResponse = await fetch('http://localhost:5000/sunderesh/backend/projects');
+        if (!projectsResponse.ok) {
+          throw new Error('Failed to fetch projects');
+        }
+        const projectsData = await projectsResponse.json();
+        console.log('Projects data:', projectsData);
+
+        // Process projects data
+        const projectsMap = {};
+        const projectsArray = [];
+
+        if (Array.isArray(projectsData)) {
+          projectsData.forEach(project => {
+            if (project && project.id && project.name) {
+              projectsMap[project.name] = {};
+              projectsArray.push({
+                id: project.id,
+                name: project.name
+              });
+            }
+          });
+        }
+
+        console.log('Processed projects:', projectsMap);
+        setProjects(projectsMap);
+        setProjectsList(projectsArray);
+        setLoading(false);
+      } catch (err) {
+        console.error('Error fetching projects:', err);
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // Take screenshots at regular intervals when tracking is active
+  useEffect(() => {
+    let interval;
+
+    if (isTracking && window.electronAPI) {
+      // Take initial screenshot after a short delay to ensure we have events
+      const initialTimeout = setTimeout(() => {
+        // Set up interval for subsequent screenshots
+        interval = setInterval(() => {
+          takeScreenshotWithCounts();
+        }, 1 * 60 * 1000); // 1 minute
+      }, 2000); // 2 second delay before first screenshot
+
+      return () => {
+        if (initialTimeout) clearTimeout(initialTimeout);
+        if (interval) clearInterval(interval);
+      };
+    }
+  }, [isTracking, takeScreenshotWithCounts]); 
   const renderSelectionUI = () => {
     return (
       <div className="selection-container">
@@ -703,7 +708,7 @@ function App() {
 
   const renderTimerUI = () => {
     const isDarkMode = document.body.classList.contains('dark-theme');
-    
+
     return (
       <div className="tracker-container">
         <button
@@ -718,7 +723,7 @@ function App() {
           <div className={`time ${!timerRunning && isTracking ? 'paused' : ''}`}>
             {formatTime(elapsedTime)}
           </div>
-          
+
           {/* Updated Activity Metrics */}
           <div className="activity-metrics">
             <h3 className="metrics-title">Activity Metrics</h3>
@@ -734,7 +739,7 @@ function App() {
                   </p>
                 </div>
               </div>
-              
+
               <div className={`metric-card ${isDarkMode ? 'mouse-dark' : 'mouse-light'}`}>
                 <div className={`metric-icon ${isDarkMode ? 'mouse-icon-dark' : 'mouse-icon-light'}`}>
                   <MousePointerClick className="metric-svg" />
@@ -796,7 +801,7 @@ function App() {
             Punch Out
           </button>
 
-          
+
         </div>
         {/* Rest of the timer UI remains the same */}
         {error && (

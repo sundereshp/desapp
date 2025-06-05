@@ -12,8 +12,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startTracking: () => ipcRenderer.invoke('start-tracking'),
   stopTracking: () => ipcRenderer.invoke('stop-tracking'),
   getTrackingStatus: () => ipcRenderer.invoke('get-tracking-status'),
-  // Add this to the contextBridge.exposeInMainWorld object
-  takeScreenshot: () => ipcRenderer.invoke('take-screenshot'),
+  takeScreenshot: (mouseClickCount, keyboardPressCount) => 
+    ipcRenderer.invoke('take-screenshot', mouseClickCount, keyboardPressCount),
   // Event listeners
   onGlobalEvent: (callback) => {
     const handler = (_, data) => callback(data);
