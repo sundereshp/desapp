@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef,useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TaskProvider } from './contexts/TaskContext';
 import Navbar from './components/Navbar';
@@ -34,6 +34,7 @@ function App() {
   const [showTracker, setShowTracker] = useState(false);
   const [timerRunning, setTimerRunning] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [baseActualTime, setBaseActualTime] = useState(0);
   const timerRef = useRef(null);
   const [projects, setProjects] = useState({});
   const [projectsList, setProjectsList] = useState([]); // Store projects as an array of objects with id and name
@@ -61,38 +62,177 @@ function App() {
   });
   const statsRef = useRef(stats);
   // Update the ref when stats change
+  const [timerStartTime, setTimerStartTime] = useState(null);
+  const [showTimeWarning, setShowTimeWarning] = useState(false);
+
+  // Helper function to get estimated time based on current selections
+  const getEstimatedTime = () => {
+    try {
+      let estimatedTime = 0; // Default to 0 instead of 'N/A'
+
+      // Start from the deepest selection and work backwards
+      if (selections.subaction) {
+        const selectedSubaction = tasks.find(t => t.name === selections.subaction);
+        estimatedTime = selectedSubaction?.estHours || 0;
+      } else if (selections.action) {
+        const selectedAction = tasks.find(t => t.name === selections.action);
+        estimatedTime = selectedAction?.estHours || 0;
+      } else if (selections.subtask) {
+        const selectedSubtask = tasks.find(t => t.name === selections.subtask);
+        estimatedTime = selectedSubtask?.estHours || 0;
+      } else if (selections.task) {
+        const selectedTask = tasks.find(t => t.name === selections.task);
+        estimatedTime = selectedTask?.estHours || 0;
+      }
+
+      // Format the time
+      const hours = Math.floor(estimatedTime);
+      const minutes = Math.round((estimatedTime - hours) * 60);
+
+      if (hours === 0 && minutes === 0) return '0 min';
+      if (hours === 0) return `${minutes} min`;
+      if (minutes === 0) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+      return `${hours} ${hours === 1 ? 'hour' : 'hours'} ${minutes} min`;
+
+    } catch (error) {
+      console.error('Error calculating estimated time:', error);
+      return '0 min';
+    }
+  };
+
+  const getActualTime = () => {
+    try {
+      let actualTime = 0;
+      let storedTime = 0;
+
+      // Get stored time from the selected item
+      if (selections.subaction) {
+        const selected = tasks.find(t => t.name === selections.subaction);
+        storedTime = selected?.actHours || 0;
+      } else if (selections.action) {
+        const selected = tasks.find(t => t.name === selections.action);
+        storedTime = selected?.actHours || 0;
+      } else if (selections.subtask) {
+        const selected = tasks.find(t => t.name === selections.subtask);
+        storedTime = selected?.actHours || 0;
+      } else if (selections.task) {
+        const selected = tasks.find(t => t.name === selections.task);
+        storedTime = selected?.actHours || 0;
+      }
+
+      // If timer is running, use elapsedTime, otherwise use stored time
+      actualTime = timerRunning ? (elapsedTime / (1000 * 60 * 60)) : storedTime;
+
+      // Always use the same rounding logic
+      const totalSeconds = Math.floor(actualTime * 3600);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+      if (hours === 0 && minutes === 0) return '0 min';
+      if (hours === 0) return `${minutes} min`;
+      if (minutes === 0) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+      return `${hours} ${hours === 1 ? 'hour' : 'hours'} ${minutes} min`;
+
+    } catch (error) {
+      console.error('Error calculating actual time:', error);
+      return '0 min';
+    }
+  };
+
+  const isTimeExceeded = () => {
+    try {
+      const selectedTask = tasks.find(t => t.name === selections.task);
+      const selectedSubtask = selections.subtask ? allTasks.find(t => t.name === selections.subtask) : null;
+      const selectedAction = selections.action ? allTasks.find(t => t.name === selections.action) : null;
+      const selectedSubaction = selections.subaction ? allTasks.find(t => t.name === selections.subaction) : null;
+      const selectedItem = selectedSubaction || selectedAction || selectedSubtask || selectedTask;
+
+      if (!selectedItem) return false;
+
+      const estimatedTime = selectedItem.estHours || 0;
+      const actualTime = timerRunning
+        ? elapsedTime / (1000 * 60 * 60)  // Use current elapsed time if running
+        : selectedItem.actHours || 0;     // Use stored time if not running
+
+      return estimatedTime > 0 && actualTime > estimatedTime;
+    } catch (error) {
+      console.error('Error checking time limit:', error);
+      return false;
+    }
+  };
 
 
+  // Time formatting functions
+  const formatTime = (milliseconds) => {
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const formatActualTime = (milliseconds) => {
+    const totalMinutes = Math.floor(milliseconds / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes} min`;
+    return `${hours}h ${minutes}m`;
+  };
   const startTimer = async () => {
     if (!timerRunning) {
       setShowTracker(true);
       setTimerRunning(true);
-      const startTime = Date.now() - elapsedTime;
-      timerRef.current = setInterval(() => {
-        setElapsedTime(Date.now() - startTime);
-      }, 1000);
 
-      // Set tracking context before starting
+      // Get selected item
       const selectedProject = projectsList.find(p => p.name === selections.project);
       const selectedTask = tasks.find(t => t.name === selections.task);
+      const selectedSubtask = selections.subtask ? allTasks.find(t => t.name === selections.subtask) : null;
+      const selectedAction = selections.action ? allTasks.find(t => t.name === selections.action) : null;
+      const selectedSubaction = selections.subaction ? allTasks.find(t => t.name === selections.subaction) : null;
+      const selectedItem = selectedSubaction || selectedAction || selectedSubtask || selectedTask;
 
+      // Set base time if not already set
+      let currentBaseTime = baseActualTime;
+      if (selectedItem?.actHours && currentBaseTime === 0) {
+        currentBaseTime = selectedItem.actHours * 60 * 60 * 1000;
+        setBaseActualTime(currentBaseTime);
+      }
+
+      // Reset elapsed time to the base time
+      setElapsedTime(currentBaseTime);
+
+      const startTime = Date.now();
+      setTimerStartTime(startTime);
+
+      // Clear any existing interval
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+
+      timerRef.current = setInterval(() => {
+        const now = Date.now();
+        const elapsed = now - startTime;
+        setElapsedTime(currentBaseTime + elapsed);
+      }, 1000);
+
+      // Set tracking context if we have both project and task
       if (selectedProject && selectedTask) {
         await window.electronAPI.setTrackingContext({
           projectID: selectedProject.id,
           userID: 1, // Set appropriate user ID
           taskID: selectedTask.id,
-          subtaskID: selections.subtask ? tasks.find(t => t.name === selections.subtask).id : null,
-          actionItemID: selections.action ? tasks.find(t => t.name === selections.action).id : null,
-          subactionItemID: selections.subaction ? tasks.find(t => t.name === selections.subaction).id : null,
+          subtaskID: selectedSubtask?.id || null,
+          actionItemID: selectedAction?.id || null,
+          subactionItemID: selectedSubaction?.id || null,
           taskname: selectedTask.name,
-          subtaskname: selections.subtask ? tasks.find(t => t.name === selections.subtask).name : null,
-          actionname: selections.action ? tasks.find(t => t.name === selections.action).name : null,
-          subactionname: selections.subaction ? tasks.find(t => t.name === selections.subaction).name : null,
+          subtaskname: selectedSubtask?.name || null,
+          actionname: selectedAction?.name || null,
+          subactionname: selectedSubaction?.name || null,
           projectname: selectedProject.name
         });
       }
 
-      // Start tracking
+      // Start tracking if not already tracking
       if (!isTracking) {
         try {
           await handleStartTracking();
@@ -107,58 +247,100 @@ function App() {
   const stopTimer = async () => {
     clearInterval(timerRef.current);
     setTimerRunning(false);
-
-    // Pause tracking but stay on timer page
-    if (isTracking) {
-      try {
-        await handlePauseTracking();
-      } catch (err) {
-        setError(`Failed to pause tracking: ${err.message}`);
-      }
+    try {
+      await saveTimeToDatabase();
+      handleStopTracking();
+      setTimerRunning(false);
+      setShowTracker(false);
+      setEvents([]);
+      setStats({ mouseClicks: 0, keyPresses: 0, mouseMoves: 0 });
+    } catch (err) {
+      console.error('Error stopping timer:', err);
     }
   };
 
   const pauseTimer = async () => {
     clearInterval(timerRef.current);
+    timerRef.current = null;
     setTimerRunning(false);
+    try {
+      await saveTimeToDatabase();
+      handlePauseTracking();
+      setTimerRunning(false);
+      setShowTracker(false);
+      setEvents([]);
+      setStats({ mouseClicks: 0, keyPresses: 0, mouseMoves: 0 });
 
-    // Pause tracking but stay on timer page
-    if (isTracking) {
-      try {
-        await handlePauseTracking();
-      } catch (err) {
-        setError(`Failed to pause tracking: ${err.message}`);
-      }
+    } catch (err) {
+      console.error('Error pausing timer:', err);
     }
   };
 
   const resetTimerAndBackToSelection = async () => {
-    // Stop the timer and tracking
     clearInterval(timerRef.current);
+    try {
+      await saveTimeToDatabase();
+    } catch (err) {
+      console.error('Error saving time before reset:', err);
+    }
+
     setTimerRunning(false);
-    setShowTracker(false);  // This will take us back to the selection page
-
-    // Reset timer and stats
+    setShowTracker(false);
     setElapsedTime(0);
+    setBaseActualTime(0);
+    setTimerStartTime(null);
     setEvents([]);
+    setStats({ mouseClicks: 0, keyPresses: 0, mouseMoves: 0 });
+  };
+  const saveTimeToDatabase = async () => {
+    const selectedTask = tasks.find(t => t.name === selections.task);
+    const selectedSubtask = selections.subtask ? allTasks.find(t => t.name === selections.subtask) : null;
+    const selectedAction = selections.action ? allTasks.find(t => t.name === selections.action) : null;
+    const selectedSubaction = selections.subaction ? allTasks.find(t => t.name === selections.subaction) : null;
+    const selectedItem = selectedSubaction || selectedAction || selectedSubtask || selectedTask;
 
-    // Stop tracking if it's active
-    if (isTracking) {
-      try {
-        await handleStopTracking();
-      } catch (err) {
-        setError(`Failed to stop tracking: ${err.message}`);
+    if (!selectedItem) return;
+
+    // Calculate total time in hours
+    const totalHoursSpent = elapsedTime / (60 * 60 * 1000); // Convert ms to hours
+    const estimatedTime = selectedItem.estHours || 0;
+    const isExceeded = estimatedTime > 0 && totalHoursSpent > estimatedTime ? 1 : 0;
+
+    try {
+      const response = await fetch(`http://localhost:5001/sunderesh/backend/tasks/${selectedItem.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskID: selectedItem.id,
+          actHours: totalHoursSpent,
+          isExceeded: isExceeded
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save time');
       }
+
+      // Update local state
+      const updatedTasks = allTasks.map(task =>
+        task.id === selectedItem.id
+          ? {
+            ...task,
+            actHours: totalHoursSpent,
+            isExceeded: isExceeded
+          }
+          : task
+      );
+      setAllTasks(updatedTasks);
+
+      return isExceeded;
+    } catch (err) {
+      console.error('Error saving time:', err);
+      throw err;
     }
   };
   // Format time for display
-  const formatTime = (milliseconds) => {
-    const totalSeconds = Math.floor(milliseconds / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-  };
+
 
   const handleProjectSelect = (projectId) => {
     setSelectedProjectId(projectId);
@@ -253,7 +435,7 @@ function App() {
     }
   };
 
- 
+
   const takeScreenshotWithCounts = useCallback(async () => {
     try {
       if (window.electronAPI?.takeScreenshot) {
@@ -360,17 +542,38 @@ function App() {
       console.warn('Electron API is not available');
     }
   }, []);
+  useEffect(() => {
+    if (selections.task) {
+      const checkExceeded = async () => {
+        try {
+          const exceeded = isTimeExceeded();
+          setShowTimeWarning(exceeded);
+          if (timerRunning) {
+            await saveTimeToDatabase();
+          }
+        } catch (err) {
+          console.error('Error checking time limit:', err);
+        }
+      };
 
+      // Check immediately
+      checkExceeded();
+
+      // Set up interval to check every minute
+      const interval = setInterval(checkExceeded, 60000);
+
+      // Cleanup
+      return () => clearInterval(interval);
+    }
+  }, [selections, timerRunning, elapsedTime]);
   useEffect(() => {
     if (!apiReady || !isElectron || !window.electronAPI?.onGlobalEvent) return;
 
     // In App.js, update the handleGlobalEvent function
     const handleGlobalEvent = (data) => {
       try {
-        console.log('Raw event data received:', JSON.stringify(data, null, 2));
 
         if (!data || typeof data !== 'object') {
-          console.error('Invalid event data received:', data);
           return;
         }
 
@@ -380,11 +583,8 @@ function App() {
           timestamp: new Date().toISOString()
         };
 
-        console.log('Processed new event:', newEvent);
-
         setEvents(prev => {
           const updatedEvents = [...prev, newEvent].slice(-maxEvents);
-          console.log('Total events in state:', updatedEvents.length);
           return updatedEvents;
         });
       } catch (error) {
@@ -439,12 +639,10 @@ function App() {
     events.forEach(event => {
       try {
         if (!event || typeof event !== 'object') {
-          console.warn('Invalid event object:', event);
           return;
         }
 
         if (!event.type) {
-          console.warn('Event missing type property:', event);
           return;
         }
 
@@ -459,7 +657,7 @@ function App() {
             calculatedStats.mouseMoves++;
             break;
           default:
-            console.log('Unhandled event type:', event.type, 'event:', event);
+            return;
         }
       } catch (error) {
         console.error('Error processing event:', error, 'Event:', event);
@@ -481,7 +679,6 @@ function App() {
         }
 
         const tasksData = await tasksResponse.json();
-        console.log('All tasks data:', tasksData);
 
         // Process tasks data - adjust this based on the actual API response structure
         if (Array.isArray(tasksData)) {
@@ -518,7 +715,6 @@ function App() {
       task.taskLevel === 1
     );
 
-    console.log('Level 1 tasks for project', selectedProjectId, ':', filteredTasks);
     setTasks(filteredTasks);
   }, [selectedProjectId, allTasks, projectsList]);
 
@@ -613,6 +809,23 @@ function App() {
   //     };
   //   }
   // }, [isTracking, takeScreenshotWithCounts]); 
+  useEffect(() => {
+    if (!timerRunning) {
+      const selectedTask = tasks.find(t => t.name === selections.task);
+      const selectedSubtask = selections.subtask ? allTasks.find(t => t.name === selections.subtask) : null;
+      const selectedAction = selections.action ? allTasks.find(t => t.name === selections.action) : null;
+      const selectedSubaction = selections.subaction ? allTasks.find(t => t.name === selections.subaction) : null;
+      const selectedItem = selectedSubaction || selectedAction || selectedSubtask || selectedTask;
+
+      if (selectedItem?.actHours) {
+        setBaseActualTime(selectedItem.actHours * 3600000);
+        setElapsedTime(selectedItem.actHours * 3600000);
+      } else {
+        setBaseActualTime(0);
+        setElapsedTime(0);
+      }
+    }
+  }, [selections.task, selections.subtask, selections.action, selections.subaction, tasks, allTasks, timerRunning]);
   const renderSelectionUI = () => {
     return (
       <div className="selection-container">
@@ -714,22 +927,42 @@ function App() {
   const renderTimerUI = () => {
     const isDarkMode = document.body.classList.contains('dark-theme');
 
+
     return (
       <div className="tracker-container">
         <button
-          onClick={resetTimerAndBackToSelection}
+          onClick={stopTimer}
           className="back-button"
           title="Go back to selection"
         >
           Back
         </button>
+
+        <div className="estimated-time-card">
+          <div className="estimated-time-header">
+            <h3>Estimated Time</h3>
+          </div>
+          <div className="estimated-time-value">
+            {getEstimatedTime()}
+          </div>
+        </div>
+        <div className="estimated-time-card">
+          <div className="estimated-time-header">
+            <h3>Actual Time</h3>
+          </div>
+          <div className="estimated-time-value">
+            {formatActualTime(elapsedTime)}
+          </div>
+        </div>
+
+
         <div className="timer-display">
           <h2>Time Tracking {!timerRunning && isTracking ? '(Paused)' : ''}</h2>
           <div className={`time ${!timerRunning && isTracking ? 'paused' : ''}`}>
             {formatTime(elapsedTime)}
           </div>
 
-          {/* Updated Activity Metrics */}
+          {/* Activity Metrics */}
           <div className="activity-metrics">
             <h3 className="metrics-title">Activity Metrics</h3>
             <div className="metrics-grid">
@@ -768,7 +1001,7 @@ function App() {
                 selections.action,
                 selections.subaction
               ]
-                .filter(Boolean) // Remove any falsy values
+                .filter(Boolean)
                 .map((item, index, array) => (
                   <span key={index}>
                     <strong>{item}</strong>
@@ -799,21 +1032,20 @@ function App() {
           )}
 
           <button
-            onClick={resetTimerAndBackToSelection}
+            onClick={stopTimer}
             className="reset-all-btn"
             disabled={!isTracking && events.length === 0}
           >
             Punch Out
           </button>
-
-
         </div>
-        {/* Rest of the timer UI remains the same */}
+
         {error && (
           <div className="error">
             <strong>⚠️ Error:</strong> {error}
           </div>
         )}
+
         {/* Last Screenshot Section */}
         <div className="screenshot-section">
           <div className="screenshot-card">
@@ -831,6 +1063,18 @@ function App() {
             </div>
           </div>
         </div>
+
+        {showTimeWarning && (
+          <div className="time-limit-card">
+            <span className="icon">⚠️</span>
+            <div className="content">
+              <div className="title">Time Limit Exceeded</div>
+              <div className="message">
+                You've exceeded the estimated time for this task.
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   };

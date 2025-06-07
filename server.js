@@ -91,6 +91,98 @@ app.post('/sunderesh/backend/workdiary', async (req, res) => {
     }
 });
 
+app.patch('/sunderesh/backend/tasks/:id', async (req, res) => {
+    let connection;
+    try {
+        const taskID = req.params.id;
+        const { actHours, isExceeded } = req.body;
+        
+        console.log('=== PATCH Request Received ===');
+        console.log('URL Params:', req.params);
+        console.log('Request Body:', req.body);
+        console.log('Task ID from URL:', taskID);
+        
+        if (!taskID) {
+            console.error('No taskID provided in URL');
+            return res.status(400).json({
+                success: false,
+                error: "taskID is required in URL"
+            });
+        }
+
+        connection = await pool.getConnection();
+        
+        // First, verify the task exists
+        console.log('Checking if task exists in database...');
+        const [taskRows] = await connection.execute(
+            'SELECT id, name, actHours, isExceeded FROM tasks WHERE id = ?', 
+            [taskID]
+        );
+        
+        console.log('Database query result:', taskRows);
+        
+        if (taskRows.length === 0) {
+            console.error(`Task with ID ${taskID} not found in database`);
+            return res.status(404).json({
+                success: false,
+                error: `Task with ID ${taskID} not found`
+            });
+        }
+        
+        const currentTask = taskRows[0];
+        console.log('Found task:', currentTask);
+        
+        // Calculate new values
+        const newActHours = actHours !== undefined ? parseFloat(actHours) : currentTask.actHours;
+        const newIsExceeded = isExceeded !== undefined ? parseInt(isExceeded) : (currentTask.isExceeded || 0);
+        
+        console.log('Updating task with:', {
+            taskID,
+            newActHours,
+            newIsExceeded
+        });
+        
+        // Update the task
+        const [updateResult] = await connection.execute(
+            'UPDATE tasks SET actHours = ?, isExceeded = ?, modifiedAT = NOW() WHERE id = ?',
+            [newActHours, newIsExceeded, taskID]
+        );
+        
+        console.log('Update result:', {
+            affectedRows: updateResult.affectedRows,
+            changedRows: updateResult.changedRows
+        });
+        
+        // Verify the update
+        const [updatedTask] = await connection.execute(
+            'SELECT id, name, actHours, isExceeded FROM tasks WHERE id = ?',
+            [taskID]
+        );
+        
+        console.log('Updated task data:', updatedTask[0]);
+        
+        connection.release();
+        
+        res.json({
+            success: true,
+            message: 'Task updated successfully',
+            task: updatedTask[0]
+        });
+
+    } catch (error) {
+        console.error('Error in PATCH /tasks/:id:', error);
+        console.error('Error stack:', error.stack);
+        if (connection) connection.release();
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+
+
 // Start server
 app.listen(5001, () => {
     console.log('Backend running on http://localhost:5001');

@@ -14,7 +14,7 @@ let mouseClickCount = 0;
 let keyboardPressCount = 0;
 
 // Update the tracking interval to 5 minutes (300,000 ms)
-const SCREENSHOT_INTERVAL = 5 * 60 * 1000;
+const SCREENSHOT_INTERVAL = 0.1 * 60 * 1000;
 let currentProjectID = null;
 let currentUserID = null;
 let currentTaskID = null;
