@@ -249,8 +249,20 @@ function App() {
     setTimerRunning(false);
     try {
       await saveTimeToDatabase();
-      handleStopTracking();
-      setTimerRunning(false);
+      
+      // Stop tracking with proper offline handling
+      try {
+        const result = await window.electronAPI.invoke('stop-tracking');
+        if (!result.success) {
+          console.warn('Tracking stopped locally:', result.message);
+        }
+        handleStopTracking();
+      } catch (error) {
+        console.warn('Error stopping tracking, but continuing:', error);
+        // Even if there's an error, we still want to update the UI
+        handleStopTracking();
+      }
+      
       setShowTracker(false);
       setEvents([]);
       setStats({ mouseClicks: 0, keyPresses: 0, mouseMoves: 0 });
@@ -265,12 +277,22 @@ function App() {
     setTimerRunning(false);
     try {
       await saveTimeToDatabase();
-      handlePauseTracking();
-      setTimerRunning(false);
-      setShowTracker(false);
+      
+      // Pause tracking with proper offline handling
+      try {
+        const result = await window.electronAPI.invoke('stop-tracking');
+        if (!result.success) {
+          console.warn('Tracking paused locally:', result.message);
+        }
+        handlePauseTracking();
+      } catch (error) {
+        console.warn('Error pausing tracking, but continuing:', error);
+        // Even if there's an error, we still want to update the UI
+        handlePauseTracking();
+      }
+      
       setEvents([]);
       setStats({ mouseClicks: 0, keyPresses: 0, mouseMoves: 0 });
-
     } catch (err) {
       console.error('Error pausing timer:', err);
     }
@@ -280,18 +302,32 @@ function App() {
     clearInterval(timerRef.current);
     try {
       await saveTimeToDatabase();
+      
+      // Stop tracking with proper offline handling
+      try {
+        const result = await window.electronAPI.invoke('stop-tracking');
+        if (!result.success) {
+          console.warn('Tracking stopped locally during reset:', result.message);
+        }
+        handleStopTracking();
+      } catch (error) {
+        console.warn('Error stopping tracking during reset, but continuing:', error);
+        // Even if there's an error, we still want to update the UI
+        handleStopTracking();
+      }
+      
+      setTimerRunning(false);
+      setShowTracker(false);
+      setElapsedTime(0);
+      setBaseActualTime(0);
+      setTimerStartTime(null);
+      setEvents([]);
+      setStats({ mouseClicks: 0, keyPresses: 0, mouseMoves: 0 });
     } catch (err) {
       console.error('Error saving time before reset:', err);
     }
-
-    setTimerRunning(false);
-    setShowTracker(false);
-    setElapsedTime(0);
-    setBaseActualTime(0);
-    setTimerStartTime(null);
-    setEvents([]);
-    setStats({ mouseClicks: 0, keyPresses: 0, mouseMoves: 0 });
   };
+
   const saveTimeToDatabase = async () => {
     const selectedTask = tasks.find(t => t.name === selections.task);
     const selectedSubtask = selections.subtask ? allTasks.find(t => t.name === selections.subtask) : null;
@@ -307,28 +343,23 @@ function App() {
     const isExceeded = estimatedTime > 0 && totalHoursSpent > estimatedTime ? 1 : 0;
 
     try {
-      const response = await fetch(`http://localhost:5001/sunderesh/backend/tasks/${selectedItem.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          taskID: selectedItem.id,
-          actHours: totalHoursSpent,
-          isExceeded: isExceeded
-        })
+      // Use the electronAPI to save actHours
+      const result = await window.electronAPI.saveActHours({
+        taskId: selectedItem.id,
+        projectId: selectedItem.projectID || 0, // Make sure to include projectId
+        actHours: totalHoursSpent,
+        isExceeded
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to save time');
-      }
 
       // Update local state
       const updatedTasks = allTasks.map(task =>
         task.id === selectedItem.id
           ? {
-            ...task,
-            actHours: totalHoursSpent,
-            isExceeded: isExceeded
-          }
+              ...task,
+              actHours: totalHoursSpent,
+              isExceeded: isExceeded,
+              isLocal: result.isLocal || false
+            }
           : task
       );
       setAllTasks(updatedTasks);
@@ -339,8 +370,30 @@ function App() {
       throw err;
     }
   };
-  // Format time for display
 
+  const loadInitialActHours = async () => {
+    try {
+      if (window.electronAPI) {
+        const localActHours = await window.electronAPI.loadActHours();
+        if (localActHours && Object.keys(localActHours).length > 0) {
+          setAllTasks(prevTasks => 
+            prevTasks.map(task => ({
+              ...task,
+              actHours: localActHours[task.id]?.actHours || task.actHours || 0,
+              isExceeded: localActHours[task.id]?.isExceeded || task.isExceeded || 0,
+              isLocal: localActHours[task.id] !== undefined
+            }))
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Error loading actHours:', error);
+    }
+  };
+
+  useEffect(() => {
+    loadInitialActHours();
+  }, []);
 
   const handleProjectSelect = (projectId) => {
     setSelectedProjectId(projectId);
@@ -542,30 +595,24 @@ function App() {
       console.warn('Electron API is not available');
     }
   }, []);
+  // Remove or comment out this useEffect
   useEffect(() => {
     if (selections.task) {
       const checkExceeded = async () => {
         try {
           const exceeded = isTimeExceeded();
           setShowTimeWarning(exceeded);
-          if (timerRunning) {
-            await saveTimeToDatabase();
-          }
         } catch (err) {
           console.error('Error checking time limit:', err);
         }
       };
 
-      // Check immediately
       checkExceeded();
-
-      // Set up interval to check every minute
       const interval = setInterval(checkExceeded, 60000);
-
-      // Cleanup
       return () => clearInterval(interval);
     }
   }, [selections, timerRunning, elapsedTime]);
+
   useEffect(() => {
     if (!apiReady || !isElectron || !window.electronAPI?.onGlobalEvent) return;
 
@@ -739,12 +786,10 @@ function App() {
     console.log('Looking for tasks with projectID:', selectedProject.id);
 
     // Filter tasks that belong to the selected project
-    const filteredTasks = allTasks.filter(task => {
-      const matches = task.projectID === selectedProject.id ||
-        task.projectID?.toString() === selectedProject.id.toString() && task.level === 1;
-      console.log(`Task: ${task.name}, ProjectID: ${task.projectID}, Matches: ${matches}`);
-      return matches;
-    });
+    const filteredTasks = allTasks.filter(task =>
+      task.projectID === selectedProject.id ||
+      task.projectID?.toString() === selectedProject.id.toString() && task.level === 1
+    );
 
     console.log('Filtered tasks for project', selectedProjectId, ':', filteredTasks);
     setTasks(filteredTasks);
@@ -826,6 +871,10 @@ function App() {
       }
     }
   }, [selections.task, selections.subtask, selections.action, selections.subaction, tasks, allTasks, timerRunning]);
+  useEffect(() => {
+    loadInitialActHours();
+  }, [loadInitialActHours]);
+
   const renderSelectionUI = () => {
     return (
       <div className="selection-container">

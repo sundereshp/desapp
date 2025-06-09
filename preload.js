@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getTrackingStatus: () => ipcRenderer.invoke('get-tracking-status'),
   takeScreenshot: (mouseClickCount, keyboardPressCount) => 
     ipcRenderer.invoke('take-screenshot', mouseClickCount, keyboardPressCount),
+  
+  // ActHours management
+  saveActHours: (data) => ipcRenderer.invoke('save-act-hours', data),
+  loadActHours: () => ipcRenderer.invoke('load-act-hours'),
+
   // Event listeners
   onGlobalEvent: (callback) => {
     const handler = (_, data) => callback(data);
@@ -37,6 +42,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('tracking-error', handler);
     return () => ipcRenderer.removeListener('tracking-error', handler);
   },
+  
   setTrackingContext: (context) => ipcRenderer.invoke('set-tracking-context', context),
 });
 
