@@ -2,7 +2,9 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
 const app = require('express')();
-
+const fs = require('fs').promises;
+const path = require('path');
+const axios = require('axios');
 // Middleware configuration
 app.use(bodyParser.json({ limit: '50mb' }));  // Increase from default 100kb
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
@@ -181,9 +183,106 @@ app.patch('/sunderesh/backend/tasks/:id', async (req, res) => {
     }
 });
 
+async function processScreenshotFiles() {
+    const screenshotsDir = path.join(__dirname, 'public', 'screenshots');
+    
+    try {
+        // Get all JSON files recursively
+        const files = await getJsonFilesRecursively(screenshotsDir);
+        console.log(`Found ${files.length} JSON files to process`);
 
+        for (const filePath of files) {
+            try {
+                // Read the file
+                const fileContent = await fs.readFile(filePath, 'utf8');
+                const jsonData = JSON.parse(fileContent);
+
+                // Post to workdiary endpoint
+                const response = await axios.post('http://localhost:5001/sunderesh/backend/workdiary', jsonData);
+                
+                if (response.status === 200) {
+                    // Delete the file after successful upload
+                    await fs.unlink(filePath);
+                    console.log(`Processed and deleted: ${filePath}`);
+                }
+            } catch (error) {
+                console.error(`Error processing ${filePath}:`, error.message);
+            }
+        }
+    } catch (error) {
+        console.error('Error processing screenshots:', error);
+    }
+}
+
+async function getJsonFilesRecursively(dir) {
+    let results = [];
+    try {
+        const files = await fs.readdir(dir, { withFileTypes: true });
+        
+        for (const file of files) {
+            const fullPath = path.join(dir, file.name);
+            
+            if (file.isDirectory()) {
+                // Recursively process all subdirectories
+                const subFiles = await getJsonFilesRecursively(fullPath);
+                results = results.concat(subFiles);
+            } else if (file.name.endsWith('.json') && file.name.startsWith('screenshot_')) {
+                // Only include files that are in a directory matching the hour pattern (e.g., "10-11")
+                const parentDir = path.basename(path.dirname(fullPath));
+                if (/^\d{2}-\d{2}$/.test(parentDir)) {
+                    results.push(fullPath);
+                }
+            }
+        }
+    } catch (error) {
+        console.error(`Error reading directory ${dir}:`, error);
+    }
+    return results;
+}
 
 // Start server
-app.listen(5001, () => {
+const server = app.listen(5001, async () => {
     console.log('Backend running on http://localhost:5001');
+    
+    // Ensure screenshots directory exists
+    const screenshotsDir = path.join(__dirname, 'public', 'screenshots');
+    try {
+        await fs.mkdir(screenshotsDir, { recursive: true });
+        console.log(`Watching directory for changes: ${screenshotsDir}`);
+        
+        // Initial processing of any existing files
+        await processScreenshotFiles();
+        
+        // Watch for new files
+        const watcher = require('chokidar').watch(screenshotsDir, {
+            ignored: /(^|[\/\\])\../, // ignore dotfiles
+            persistent: true,
+            ignoreInitial: true,
+            awaitWriteFinish: {
+                stabilityThreshold: 1000,
+                pollInterval: 100
+            }
+        });
+        
+        watcher.on('add', async (filePath) => {
+            if (filePath.endsWith('.json')) {
+                console.log(`New screenshot detected: ${filePath}`);
+                await processScreenshotFiles();
+            }
+        });
+        
+        watcher.on('error', error => {
+            console.error('Watcher error:', error);
+        });
+        
+    } catch (error) {
+        console.error('Error setting up file watcher:', error);
+    }
+});
+
+// Handle server shutdown
+process.on('SIGINT', () => {
+    console.log('Shutting down server...');
+    server.close();
+    process.exit(0);
 });

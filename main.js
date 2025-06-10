@@ -1,8 +1,15 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const electron = require('electron');
+const { app, BrowserWindow, ipcMain } = electron;
 const { uIOhook, UiohookKey } = require('uiohook-napi');
-const { desktopCapturer, screen } = require('electron');
+const { desktopCapturer, screen } = electron;
 const path = require('path');
 const fs = require('fs-extra');
+
+// Verify Electron app is loaded
+if (!app) {
+    console.error('Failed to load Electron app module. Make sure Electron is installed correctly.');
+    process.exit(1);
+}
 
 let mainWindow;
 let isTracking = false;
@@ -104,12 +111,31 @@ async function saveScreenshotLocally(data) {
         const timestamp = now.getTime();
         const filePath = path.join(screenshotsDir, `screenshot_${timestamp}.json`);
 
+        // Create a clean copy of the data without the unwanted fields
+        const { savedLocally, lastUpdated, ...cleanData } = data;
+        
+        // Ensure keyboardJSON and mouseJSON are proper objects if they exist
+        if (cleanData.keyboardJSON && typeof cleanData.keyboardJSON === 'string') {
+            try {
+                cleanData.keyboardJSON = JSON.parse(cleanData.keyboardJSON);
+            } catch (e) {
+                console.error('Error parsing keyboardJSON:', e);
+            }
+        }
+        
+        if (cleanData.mouseJSON && typeof cleanData.mouseJSON === 'string') {
+            try {
+                cleanData.mouseJSON = JSON.parse(cleanData.mouseJSON);
+            } catch (e) {
+                console.error('Error parsing mouseJSON:', e);
+            }
+        }
+
+        // Add timestamps
         const dataToSave = {
-            ...data,
-            screenshotTimeStamp: data.screenshotTimeStamp.toISOString(),
-            calcTimeStamp: data.calcTimeStamp.toISOString(),
-            savedLocally: true,
-            lastUpdated: now.toISOString()
+            ...cleanData,
+            screenshotTimeStamp: cleanData.screenshotTimeStamp?.toISOString?.() || new Date().toISOString(),
+            calcTimeStamp: cleanData.calcTimeStamp?.toISOString?.() || new Date().toISOString()
         };
 
         await fs.writeJson(filePath, dataToSave, { spaces: 2 });
@@ -359,157 +385,160 @@ async function loadActHoursLocally() {
         return {};
     }
 }
-app.on('will-quit', () => {
-    stopTracking();
-    uIOhook.stop();
-    uIOhook.unregisterAllShortcuts();
-});
-
-// Register IPC handlers
-// In your main.js, make sure you have this IPC handler
-ipcMain.handle('start-tracking', async () => {
-    startTracking();
-    return { success: true, isTracking };
-});
-
-ipcMain.handle('stop-tracking', async () => {
-    stopTracking();
-    return { success: true, isTracking };
-});
-ipcMain.on('tracking-status', (event, data) => {
-    mainWindow.webContents.send('tracking-status', data);
-});
-
-ipcMain.on('tracking-error', (event, error) => {
-    mainWindow.webContents.send('tracking-error', error);
-});
-// Add this with your other IPC handlers in main.js
-ipcMain.handle('get-tracking-status', async () => {
-    return { isTracking };
-});
-ipcMain.handle('set-tracking-context', (event, context) => {
-    currentProjectID = context.projectID;
-    currentUserID = context.userID;
-    currentProjectName = context.projectname;
-    currentTaskName = context.taskname;
-    // Priority order: subactionItemID > actionItemID > subtaskID > taskID
-    if (context.subactionItemID) {
-        currentTaskID = context.subactionItemID;
-        currentTaskName = context.subactionname;
-        console.log('Tracking subaction item with ID:', currentTaskID);
-    } else if (context.actionItemID) {
-        currentTaskID = context.actionItemID;
-        currentTaskName = context.actionname;
-        console.log('Tracking action item with ID:', currentTaskID);
-    } else if (context.subtaskID) {
-        currentTaskID = context.subtaskID;
-        currentTaskName = context.subtaskname;
-        console.log('Tracking subtask with ID:', currentTaskID);
-    } else {
-        currentTaskID = context.taskID;
-        currentTaskName = context.taskname;
-        console.log('Tracking task with ID:', currentTaskID);
-    }
-
-    return { success: true };
-});
-ipcMain.handle('take-screenshot', async (_, mouse, keyboard) => {
-    try {
-        return await takeScreenshot(mouse, keyboard);
-    } catch (error) {
-        console.error('Screenshot IPC failed:', error);
-        mainWindow.webContents.send('tracking-error', {
-            type: 'api-failure',
-            message: error.message
-        });
-        return { success: false };
-    }
-});
-ipcMain.handle('save-act-hours', async (event, { taskId, projectId, actHours, isExceeded }) => {
-    try {
-        // First try to save to the server
-        const response = await fetch(`http://localhost:5001/sunderesh/backend/tasks/${taskId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                taskID: taskId,
-                projectID: projectId,
-                actHours,
-                isExceeded
-            })
-        });
-
-        if (response.ok) {
-            // If server save is successful, save locally with isSynced=true
-            await saveActHoursLocally(projectId, taskId, {
-                actHours,
-                isExceeded,
-                isSynced: true,
-                lastServerSync: new Date().toISOString()
-            });
-            return { success: true, isLocal: false };
-        }
-
-        throw new Error('Failed to save to server');
-    } catch (error) {
-        console.log('Server save failed, saving locally only');
-        // If server save fails, save locally only
-        const success = await saveActHoursLocally(projectId, taskId, {
-            actHours,
-            isExceeded
-        });
-        return { success, isLocal: true };
-    }
-});
-
-ipcMain.handle('load-act-hours', async () => {
-    return await loadActHoursLocally();
-});
-function createWindow() {
-    mainWindow = new BrowserWindow({
-        width: 600,
-        height: 900,
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            preload: path.join(__dirname, 'preload.js')
-        },
-
-    });
-
-    // Load the app
-    const startUrl = process.env.ELECTRON_START_URL || `file://${path.join(__dirname, 'build/index.html')}`;
-    mainWindow.loadURL(startUrl);
-
-    // Open the DevTools in development
-    if (process.env.NODE_ENV === 'development') {
-        mainWindow.webContents.openDevTools();
-    }
-}
-
 // Initialize iohook
-uIOhook.start(false); // Start but don't hook into any events yet
+const iohook = uIOhook;
 
-app.whenReady().then(() => {
-    createWindow();
+// Start the app
+if (app) {
+    app.whenReady().then(() => {
+        // Set up will-quit handler
+        app.on('will-quit', () => {
+            stopTracking();
+            uIOhook.stop();
+            uIOhook.unregisterAllShortcuts();
+        });
 
-    app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow();
+        // Register IPC handlers
+        ipcMain.handle('start-tracking', async () => {
+            startTracking();
+            return { success: true, isTracking };
+        });
+
+        ipcMain.handle('stop-tracking', async () => {
+            stopTracking();
+            return { success: true, isTracking };
+        });
+        ipcMain.on('tracking-status', (event, data) => {
+            mainWindow.webContents.send('tracking-status', data);
+        });
+
+        ipcMain.on('tracking-error', (event, error) => {
+            mainWindow.webContents.send('tracking-error', error);
+        });
+        // Add this with your other IPC handlers in main.js
+        ipcMain.handle('get-tracking-status', async () => {
+            return { isTracking };
+        });
+        ipcMain.handle('set-tracking-context', (event, context) => {
+            currentProjectID = context.projectID;
+            currentUserID = context.userID;
+            currentProjectName = context.projectname;
+            currentTaskName = context.taskname;
+            // Priority order: subactionItemID > actionItemID > subtaskID > taskID
+            if (context.subactionItemID) {
+                currentTaskID = context.subactionItemID;
+                currentTaskName = context.subactionname;
+                console.log('Tracking subaction item with ID:', currentTaskID);
+            } else if (context.actionItemID) {
+                currentTaskID = context.actionItemID;
+                currentTaskName = context.actionname;
+                console.log('Tracking action item with ID:', currentTaskID);
+            } else if (context.subtaskID) {
+                currentTaskID = context.subtaskID;
+                currentTaskName = context.subtaskname;
+                console.log('Tracking subtask with ID:', currentTaskID);
+            } else {
+                currentTaskID = context.taskID;
+                currentTaskName = context.taskname;
+                console.log('Tracking task with ID:', currentTaskID);
+            }
+
+            return { success: true };
+        });
+        ipcMain.handle('take-screenshot', async (_, mouse, keyboard) => {
+            try {
+                return await takeScreenshot(mouse, keyboard);
+            } catch (error) {
+                console.error('Screenshot IPC failed:', error);
+                mainWindow.webContents.send('tracking-error', {
+                    type: 'api-failure',
+                    message: error.message
+                });
+                return { success: false };
+            }
+        });
+        ipcMain.handle('save-act-hours', async (event, { taskId, projectId, actHours, isExceeded }) => {
+            try {
+                // First try to save to the server
+                const response = await fetch(`http://localhost:5001/sunderesh/backend/tasks/${taskId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        taskID: taskId,
+                        projectID: projectId,
+                        actHours,
+                        isExceeded
+                    })
+                });
+
+                if (response.ok) {
+                    // If server save is successful, save locally with isSynced=true
+                    await saveActHoursLocally(projectId, taskId, {
+                        actHours,
+                        isExceeded,
+                        isSynced: true,
+                        lastServerSync: new Date().toISOString()
+                    });
+                    return { success: true, isLocal: false };
+                }
+
+                throw new Error('Failed to save to server');
+            } catch (error) {
+                console.log('Server save failed, saving locally only');
+                // If server save fails, save locally only
+                const success = await saveActHoursLocally(projectId, taskId, {
+                    actHours,
+                    isExceeded
+                });
+                return { success, isLocal: true };
+            }
+        });
+
+        ipcMain.handle('load-act-hours', async () => {
+            return await loadActHoursLocally();
+        });
+        function createWindow() {
+            mainWindow = new BrowserWindow({
+                width: 600,
+                height: 900,
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true,
+                    preload: path.join(__dirname, 'preload.js')
+                },
+
+            });
+
+            // Load the app
+            const startUrl = process.env.ELECTRON_START_URL || `file://${path.join(__dirname, 'build/index.html')}`;
+            mainWindow.loadURL(startUrl);
+
+            // Open the DevTools in development
+            if (process.env.NODE_ENV === 'development') {
+                mainWindow.webContents.openDevTools();
+            }
+        }
+
+        createWindow();
+
+        app.on('activate', () => {
+            if (BrowserWindow.getAllWindows().length === 0) {
+                createWindow();
+            }
+        });
+    });
+
+    app.on('window-all-closed', () => {
+        if (process.platform !== 'darwin') {
+            stopTracking();
+            app.quit();
         }
     });
-});
 
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
+    // Clean up on app quit
+    app.on('will-quit', () => {
         stopTracking();
-        app.quit();
-    }
-});
-
-// Clean up on app quit
-app.on('will-quit', () => {
-    stopTracking();
-    uIOhook.unload();
-    uIOhook.stop();
-});
+        uIOhook.unload();
+        uIOhook.stop();
+    });
+}
