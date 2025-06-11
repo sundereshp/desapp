@@ -30,6 +30,15 @@ let currentTaskName = null;
 // Remove the original saveToWorkdiary function and replace with:
 async function saveToWorkdiary(data) {
     try {
+        console.log('Saving to workdiary, thumbnailURL exists:', !!data.thumbnailURL);
+        console.log('Data being sent to server:', {
+            ...data,
+            imageURL: data.imageURL ? '[IMAGE_DATA]' : 'MISSING',
+            thumbnailURL: data.thumbnailURL ? '[THUMBNAIL_DATA]' : 'MISSING',
+            keyboardJSON: data.keyboardJSON,
+            mouseJSON: data.mouseJSON
+        });
+
         const response = await fetch('http://localhost:5001/sunderesh/backend/workdiary', {
             method: 'POST',
             headers: {
@@ -46,6 +55,7 @@ async function saveToWorkdiary(data) {
                 keyboardJSON: JSON.parse(data.keyboardJSON),
                 mouseJSON: JSON.parse(data.mouseJSON),
                 imageURL: data.imageURL,
+                thumbnailURL: data.thumbnailURL,
                 activeFlag: 1,
                 deletedFlag: 0
             })
@@ -165,6 +175,12 @@ async function takeScreenshot(mouseClickCount, keyboardPressCount) {
             quality: 'good'
         }).toJPEG(60).toString('base64');
 
+        const thumbnailBase64 = sources[0].thumbnail.resize({
+            width: 300,
+            height: 200,
+            quality: 'good'
+        }).toJPEG(60).toString('base64');
+
         const workdiaryData = {
             projectID: currentProjectID,
             projectName: currentProjectName,
@@ -176,6 +192,7 @@ async function takeScreenshot(mouseClickCount, keyboardPressCount) {
             keyboardJSON: JSON.stringify({ count: keyboardPressCount }),
             mouseJSON: JSON.stringify({ count: mouseClickCount }),
             imageURL: fullSizeBase64,
+            thumbnailURL: thumbnailBase64,
             activeFlag: 1,
             deletedFlag: 0,
             createdAt: new Date(),
@@ -186,14 +203,33 @@ async function takeScreenshot(mouseClickCount, keyboardPressCount) {
             JSON.stringify(workdiaryData).length / 1024, 'KB');
 
         // Try to save to server first, it will fall back to local if needed
-        return await saveToWorkdiary(workdiaryData);
+        const result = await saveToWorkdiary(workdiaryData);
+        
+        if (result && result.success) {
+            // Reset the counters after successful save
+            const resetInfo = {
+                mouseClicks: mouseClickCount,
+                keyPresses: keyboardPressCount
+            };
+            
+            // Reset the global counters
+            mouseClickCount = 0;
+            keyboardPressCount = 0;
+            
+            return { 
+                ...result, 
+                resetInfo,
+                countersReset: true
+            };
+        }
+        
+        return result;
     } catch (error) {
         console.error('Error in takeScreenshot:', error);
-        // If we get here, it means both server and local save failed
         return { 
             success: false, 
             error: error.message,
-            savedLocally: false
+            savedLocally: false 
         };
     }
 }

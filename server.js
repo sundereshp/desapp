@@ -27,9 +27,19 @@ const pool = mysql.createPool({
 });
 
 // POST endpoint configuration
+// In server.js, modify the workdiary POST endpoint
 app.post('/sunderesh/backend/workdiary', async (req, res) => {
     let connection;
     try {
+        console.log('=== New Workdiary Request ===');
+        console.log('Request body keys:', Object.keys(req.body));
+        console.log('Thumbnail present in request:', 'thumbnailURL' in req.body);
+        
+        if (req.body.thumbnailURL) {
+            console.log('Thumbnail data length:', req.body.thumbnailURL.length);
+            console.log('Thumbnail data start:', req.body.thumbnailURL.substring(0, 50) + '...');
+        }
+
         const {
             projectID,
             userID,
@@ -41,15 +51,17 @@ app.post('/sunderesh/backend/workdiary', async (req, res) => {
             keyboardJSON,
             mouseJSON,
             imageURL,
+            thumbnailURL,
             activeFlag,
             deletedFlag,
-            activeMins,
-            createdAt,
-            modifiedAT
+            activeMins
         } = req.body;
+
+        console.log('Extracted thumbnailURL length:', thumbnailURL ? thumbnailURL.length : 0);
 
         // Input validation
         if (!projectID || !userID || !taskID) {
+            console.error('Missing required fields');
             return res.status(400).json({
                 success: false,
                 error: "Missing required fields"
@@ -57,12 +69,14 @@ app.post('/sunderesh/backend/workdiary', async (req, res) => {
         }
 
         connection = await pool.getConnection();
+        console.log('Executing SQL with thumbnailURL length:', thumbnailURL ? thumbnailURL.length : 0);
+        
         const [result] = await connection.execute(`
-        INSERT INTO workdiary 
-    (projectID, projectName, userID, taskID, taskName, screenshotTimeStamp, calcTimeStamp, 
-     keyboardJSON, mouseJSON, imageURL, activeFlag, activeMins, deletedFlag, createdAt, modifiedAT) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-`, [
+            INSERT INTO workdiary 
+            (projectID, projectName, userID, taskID, taskName, screenshotTimeStamp, calcTimeStamp, 
+             keyboardJSON, mouseJSON, imageURL, thumbnailURL, activeFlag, activeMins, deletedFlag, createdAt, modifiedAT) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        `, [
             projectID || null,
             projectName || 'Unknown Project',
             userID || 1,
@@ -73,19 +87,84 @@ app.post('/sunderesh/backend/workdiary', async (req, res) => {
             JSON.stringify(keyboardJSON || {}),
             JSON.stringify(mouseJSON || {}),
             imageURL || '',
+            thumbnailURL || '',
             activeFlag !== undefined ? activeFlag : 1,
-            activeMins || 0,  // Added activeMins with default 0
+            activeMins || 0,
             deletedFlag !== undefined ? deletedFlag : 0
         ]);
 
+        console.log('Insert successful, ID:', result.insertId);
         connection.release();
+        
+        // Verify the inserted data
+        const [inserted] = await connection.execute(
+            'SELECT id, projectID, taskID, LENGTH(thumbnailURL) as thumbnailLength FROM workdiary WHERE id = ?',
+            [result.insertId]
+        );
+        console.log('Inserted record info:', inserted[0]);
+
         res.json({
             success: true,
             insertedId: result.insertId
         });
 
     } catch (error) {
-        console.error('Database error:', error);
+        console.error('Database error details:', {
+            message: error.message,
+            code: error.code,
+            errno: error.errno,
+            sqlMessage: error.sqlMessage,
+            sql: error.sql
+        });
+        if (connection) connection.release();
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// GET endpoint to fetch workdiary entries
+app.get('/sunderesh/backend/workdiary', async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+
+        const [rows] = await connection.execute('SELECT * FROM workdiary ORDER BY screenshotTimeStamp DESC');
+
+        connection.release();
+
+        res.json({
+            success: true,
+            data: rows
+        });
+    } catch (error) {
+        console.error('Error fetching workdiary entries:', error);
+        if (connection) connection.release();
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// GET endpoint to fetch workdiary entries
+app.get('/sunderesh/backend/workdiary/:id', async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+
+        const [rows] = await connection.execute('SELECT * FROM workdiary WHERE id = ?', [req.params.id]);
+
+        connection.release();
+
+        res.json({
+            success: true,
+            data: rows
+        });
+    } catch (error) {
+        console.error('Error fetching workdiary entries:', error);
+        if (connection) connection.release();
         res.status(500).json({
             success: false,
             error: error.message
